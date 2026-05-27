@@ -18,6 +18,10 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """Yield a request-scoped asynchronous database session."""
+    """Yield a request-scoped session wrapped in a single transaction.
+
+    Commits automatically on success; rolls back on any exception.
+    """
     async with async_session_factory() as session:
-        yield session
+        async with session.begin():
+            yield session
