@@ -1,15 +1,15 @@
 # API Layer
 
-Warstwa HTTP — deklaracje tras, walidacja requestów i kontrakty odpowiedzi.
+HTTP layer — route declarations, request validation, and response contracts.
 
-## Zasady
+## Rules
 
-- Route handlery delegują logikę biznesową do serwisów (`core/services/`).
-- Routes **nie importują** repozytoriów ani klientów integracji bezpośrednio (egzekwowane przez `test_architecture_boundaries.py`).
-- Route handler powinien być cienki: walidacja wejścia (Pydantic) → wywołanie serwisu → zwrócenie response schema.
-- Każdy route handler oznaczony dekoratorem `@router.get/post/patch/delete` z dokumentacją (summary, description, responses).
+- Route handlers delegate business logic to services (`core/services/`).
+- Routes **do not import** repositories or integration clients directly (enforced by `test_architecture_boundaries.py`).
+- A route handler should be thin: validate input (Pydantic) → call service → return response schema.
+- Every route handler is decorated with `@router.get/post/patch/delete` and includes documentation (summary, description, responses).
 
-## Wzorzec implementacji route handlera
+## Route Handler Pattern
 
 ```python
 @router.post(
@@ -35,19 +35,19 @@ async def create_task(
     return TaskResponse.model_validate(task)
 ```
 
-## Struktura katalogów
+## Directory Structure
 
 ```
 api/
 └── v1/
-    ├── router.py                # Główny router v1 — montuje wszystkie sub-routery
+    ├── router.py                # Main v1 router — mounts all sub-routers
     ├── auth/
     │   └── routes.py            # POST /auth/register, /auth/login, etc.
     ├── organizations/
     │   └── routes.py            # CRUD /organizations + /members
-    ├── repositories/            # Obsługuje domainę "Projects"
+    ├── repositories/            # Handles the "Projects" domain
     │   └── routes.py            # CRUD /projects
-    ├── pull_requests/           # Obsługuje domainę "Tasks + Time Tracking"
+    ├── pull_requests/           # Handles the "Tasks + Time Tracking" domain
     │   └── routes.py            # CRUD /tasks + /start, /stop, /sessions
     ├── metrics/
     │   └── routes.py            # GET /metrics/*

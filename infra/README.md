@@ -1,81 +1,81 @@
 # Infrastructure
 
-Konfiguracja lokalna i deployment DevFlow Insight.
+Local and deployment infrastructure configuration for DevFlow Insight.
 
 ## Stack
 
-- **API:** FastAPI na porcie `8000`
-- **Baza danych:** PostgreSQL 18.3 na porcie `5432`
-- **Cache** *(do dodania)*: Redis na porcie `6379` — potrzebny dla cachowania metryk
+- **API:** FastAPI on port `8000`
+- **Database:** PostgreSQL 18.3 on port `5432`
+- **Cache** *(to be added)*: Redis on port `6379` — needed for metrics caching
 
-## Uruchomienie lokalne
+## Local Development
 
-### Wymagania
+### Prerequisites
 
 - Docker Desktop
-- Plik `apps/api/.env` (skopiuj z `.env.example` i uzupełnij)
+- File `apps/api/.env` (copy from `.env.example` and fill in values)
 
-### Pierwsze uruchomienie
+### First-time Setup
 
 ```powershell
-# Skopiuj konfigurację
+# Copy configuration
 cp apps/api/.env.example apps/api/.env
 
-# Uruchom stack (API + PostgreSQL)
+# Start the stack (API + PostgreSQL)
 docker compose -f infra/docker-compose.yml up -d
 
-# Uruchom migracje bazy danych
+# Run database migrations
 docker compose -f infra/docker-compose.yml exec api uv run alembic upgrade head
 
-# Zweryfikuj działanie
+# Verify it's working
 curl http://localhost:8000/health
-# Oczekiwana odpowiedź: {"status": "ok", "environment": "local"}
+# Expected response: {"status": "ok", "environment": "local"}
 ```
 
-### Kolejne uruchomienia
+### Subsequent Starts
 
 ```powershell
 docker compose -f infra/docker-compose.yml up -d
 ```
 
-### Zatrzymanie
+### Stopping
 
 ```powershell
 docker compose -f infra/docker-compose.yml down
-# Z usunięciem danych bazy:
+# With data volume removal:
 docker compose -f infra/docker-compose.yml down -v
 ```
 
-## Zmienne środowiskowe
+## Environment Variables
 
-Plik `apps/api/.env`:
+File `apps/api/.env`:
 
-| Zmienna | Wartość lokalna | Opis |
+| Variable | Local value | Description |
 |---|---|---|
-| `DEVFLOW_API_ENVIRONMENT` | `local` | Środowisko: local/test/staging/production |
-| `DEVFLOW_API_DEBUG` | `true` | Tryb debug |
-| `DEVFLOW_API_DATABASE_URL` | `postgresql+asyncpg://devflow:devflow@localhost:5432/devflow` | URL bazy |
-| `DEVFLOW_API_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Dozwolone origins |
-| `DEVFLOW_API_SECRET_KEY` | *wygeneruj losowy string 32+ znaków* | Klucz podpisywania JWT |
-| `DEVFLOW_API_GITHUB_CLIENT_ID` | *z GitHub OAuth App* | GitHub OAuth Client ID |
-| `DEVFLOW_API_GITHUB_CLIENT_SECRET` | *z GitHub OAuth App* | GitHub OAuth Client Secret |
-| `DEVFLOW_API_GITHUB_WEBHOOK_SECRET` | *wygeneruj losowy string* | GitHub webhook HMAC secret |
+| `DEVFLOW_API_ENVIRONMENT` | `local` | Environment: local/test/staging/production |
+| `DEVFLOW_API_DEBUG` | `true` | Debug mode |
+| `DEVFLOW_API_DATABASE_URL` | `postgresql+asyncpg://devflow:devflow@localhost:5432/devflow` | Database URL |
+| `DEVFLOW_API_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Allowed origins |
+| `DEVFLOW_API_SECRET_KEY` | *generate random 32+ char string* | JWT signing key |
+| `DEVFLOW_API_GITHUB_CLIENT_ID` | *from GitHub OAuth App* | GitHub OAuth Client ID |
+| `DEVFLOW_API_GITHUB_CLIENT_SECRET` | *from GitHub OAuth App* | GitHub OAuth Client Secret |
+| `DEVFLOW_API_GITHUB_WEBHOOK_SECRET` | *generate random string* | GitHub webhook HMAC secret |
 
-**Uwaga:** `DEVFLOW_API_SECRET_KEY`, `DEVFLOW_API_GITHUB_CLIENT_SECRET` i `DEVFLOW_API_GITHUB_WEBHOOK_SECRET` nigdy nie trafiają do repozytorium.
+**Note:** `DEVFLOW_API_SECRET_KEY`, `DEVFLOW_API_GITHUB_CLIENT_SECRET`, and `DEVFLOW_API_GITHUB_WEBHOOK_SECRET` must never be committed to the repository.
 
-## Docker Compose — services
+## Docker Compose — Services
 
-### Aktualny stan
+### Current State
 
 ```yaml
 services:
-  api:       # FastAPI na porcie 8000
-  postgres:  # PostgreSQL 18.3 na porcie 5432
+  api:       # FastAPI on port 8000
+  postgres:  # PostgreSQL 18.3 on port 5432
 ```
 
-### Do dodania: Redis (cache metryk)
+### To Add: Redis (metrics cache)
 
-Serwis Redis powinien zostać dodany do `docker-compose.yml` gdy zaimplementowany zostanie `MetricsService` z cachowaniem:
+A Redis service should be added to `docker-compose.yml` once `MetricsService` with caching is implemented:
 
 ```yaml
   redis:
@@ -86,61 +86,61 @@ Serwis Redis powinien zostać dodany do `docker-compose.yml` gdy zaimplementowan
       - devflow-redis-data:/data
 ```
 
-## Migracje bazy danych
+## Database Migrations
 
 ```powershell
-# Utwórz nową migrację (po dodaniu modeli ORM)
+# Create a new migration (after adding ORM models)
 docker compose -f infra/docker-compose.yml exec api uv run alembic revision --autogenerate -m "add users table"
 
-# Zastosuj migracje
+# Apply migrations
 docker compose -f infra/docker-compose.yml exec api uv run alembic upgrade head
 
-# Cofnij ostatnią migrację
+# Roll back the last migration
 docker compose -f infra/docker-compose.yml exec api uv run alembic downgrade -1
 
-# Sprawdź historię migracji
+# View migration history
 docker compose -f infra/docker-compose.yml exec api uv run alembic history
 ```
 
-## CI/CD (do zaimplementowania)
+## CI/CD (to be implemented)
 
-Należy stworzyć następujące GitHub Actions workflows w `.github/workflows/`:
+Create the following GitHub Actions workflows in `.github/workflows/`:
 
-### `ci.yml` — weryfikacja każdego PR
+### `ci.yml` — PR verification
 
-Wyzwolenie: każdy push do branch + otworzenie/aktualizacja PR
+Triggered on: every push to a branch + PR open/update
 
-Kroki:
-1. Checkout kodu
-2. Setup Python 3.14 + uv
-3. `uv sync` — instalacja zależności
-4. `uv run ruff format --check .` — sprawdzenie formatowania
+Steps:
+1. Checkout code
+2. Set up Python 3.14 + uv
+3. `uv sync` — install dependencies
+4. `uv run ruff format --check .` — format check
 5. `uv run ruff check .` — linting
 6. `uv run mypy src tests` — type checking
-7. Uruchomienie PostgreSQL (service container)
-8. `uv run pytest` — testy integracyjne
+7. Start PostgreSQL (service container)
+8. `uv run pytest` — integration tests
 
-### `docker.yml` — build obrazu
+### `docker.yml` — image build
 
-Wyzwolenie: push do `main`
+Triggered on: push to `main`
 
-Kroki:
-1. Build obrazu Docker
-2. Push do GitHub Container Registry (`ghcr.io`)
-3. Tagowanie: `latest` + SHA commita
+Steps:
+1. Build Docker image
+2. Push to GitHub Container Registry (`ghcr.io`)
+3. Tag: `latest` + commit SHA
 
-### `release.yml` — wersjonowanie
+### `release.yml` — versioning
 
-Wyzwolenie: utworzenie tagu `v*.*.*`
+Triggered on: tag creation `v*.*.*`
 
-Kroki:
-1. Build obrazu z tagiem wersji
-2. Stworzenie GitHub Release z changelogiem
+Steps:
+1. Build image with version tag
+2. Create GitHub Release with changelog
 
-## Deployment produkcyjny (planowany)
+## Production Deployment (planned)
 
-Na produkcji każdy serwis powinien być osobnym kontenerem/poddem:
-- **API:** skalowalne poziomo (min. 2 repliki), bez stanu
-- **PostgreSQL:** zarządzana instancja (np. AWS RDS, Supabase)
-- **Redis:** zarządzana instancja (np. AWS ElastiCache)
-- **Secrets:** AWS Secrets Manager lub HashiCorp Vault (nie zmienne środowiskowe)
+In production each service should be a separate container/pod:
+- **API:** horizontally scalable (min. 2 replicas), stateless
+- **PostgreSQL:** managed instance (e.g. AWS RDS, Supabase)
+- **Redis:** managed instance (e.g. AWS ElastiCache)
+- **Secrets:** AWS Secrets Manager or HashiCorp Vault (not environment variables)

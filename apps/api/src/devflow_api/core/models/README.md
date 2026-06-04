@@ -1,18 +1,18 @@
 # Models
 
-SQLAlchemy ORM models — persystowany stan domeny w bazie danych.
+SQLAlchemy ORM models — persisted domain state in the database.
 
-## Zasady
+## Rules
 
-- Modele reprezentują wyłącznie stan w bazie danych. Logika biznesowa należy do `services/`.
-- Każdy model w osobnym pliku (`user.py`, `task.py`, etc.).
-- Wszystkie modele dziedziczą po `Base` z `core/database.py`.
-- Nazwy tabel: `snake_case` w liczbie mnogiej (np. `work_sessions`, `refresh_tokens`).
-- Każdy model ma pola `id` (UUID), `created_at` i `updated_at` z automatycznym wypełnianiem.
+- Models represent database state only. Business logic belongs in `services/`.
+- Each model in its own file (`user.py`, `task.py`, etc.).
+- All models inherit from `Base` in `core/database.py`.
+- Table names: `snake_case` plural (e.g. `work_sessions`, `refresh_tokens`).
+- Every model has `id` (UUID), `created_at`, and `updated_at` fields with automatic population.
 
-## Modele do zaimplementowania
+## Models to Implement
 
-### `user.py` — tabela `users`
+### `user.py` — table `users`
 
 ```python
 class User(Base):
@@ -27,7 +27,7 @@ class User(Base):
     updated_at: datetime (default=now, onupdate=now, not null)
 ```
 
-Relacje:
+Relations:
 - `refresh_tokens` → `RefreshToken` (one-to-many)
 - `memberships` → `OrganizationMember` (one-to-many)
 - `projects` → `Project` (one-to-many, created_by)
@@ -38,7 +38,7 @@ Relacje:
 
 ---
 
-### `refresh_token.py` — tabela `refresh_tokens`
+### `refresh_token.py` — table `refresh_tokens`
 
 ```python
 class RefreshToken(Base):
@@ -46,17 +46,17 @@ class RefreshToken(Base):
 
     id: UUID (primary_key)
     user_id: UUID (FK → users.id, not null, indexed)
-    token_hash: str (unique, not null)   ← SHA-256 hash tokenu
+    token_hash: str (unique, not null)   ← SHA-256 hash of the token
     expires_at: datetime (not null)
     revoked_at: datetime | None
     created_at: datetime (default=now)
 ```
 
-Indeks: `(token_hash)` dla szybkiego wyszukiwania przy refresh.
+Index on `(token_hash)` for fast lookup during refresh.
 
 ---
 
-### `organization.py` — tabele `organizations` + `organization_members`
+### `organization.py` — tables `organizations` + `organization_members`
 
 ```python
 class Organization(Base):
@@ -64,7 +64,7 @@ class Organization(Base):
 
     id: UUID (primary_key)
     name: str (not null)
-    slug: str (unique, not null, indexed)  ← URL-friendly identyfikator
+    slug: str (unique, not null, indexed)  ← URL-friendly identifier
     description: str | None
     created_by: UUID (FK → users.id, not null)
     created_at: datetime
@@ -85,14 +85,14 @@ class OrganizationMember(Base):
 
 ---
 
-### `project.py` — tabela `projects`
+### `project.py` — table `projects`
 
 ```python
 class Project(Base):
     __tablename__ = "projects"
 
     id: UUID (primary_key)
-    org_id: UUID (FK → organizations.id) | None  ← None = projekt osobisty
+    org_id: UUID (FK → organizations.id) | None  ← None = personal project
     name: str (not null)
     description: str | None
     status: str (not null, default='active')     ← 'active' | 'archived'
@@ -102,11 +102,11 @@ class Project(Base):
     updated_at: datetime
 ```
 
-Indeks: `(org_id)`, `(created_by)`.
+Indexes on `(org_id)`, `(created_by)`.
 
 ---
 
-### `task.py` — tabela `tasks`
+### `task.py` — table `tasks`
 
 ```python
 class Task(Base):
@@ -131,11 +131,11 @@ class Task(Base):
     updated_at: datetime
 ```
 
-Indeksy: `(project_id)`, `(assignee_id)`, `(status)`, `(created_by)`.
+Indexes on `(project_id)`, `(assignee_id)`, `(status)`, `(created_by)`.
 
 ---
 
-### `work_session.py` — tabela `work_sessions`
+### `work_session.py` — table `work_sessions`
 
 ```python
 class WorkSession(Base):
@@ -145,18 +145,18 @@ class WorkSession(Base):
     task_id: UUID (FK → tasks.id, not null, indexed)
     user_id: UUID (FK → users.id, not null, indexed)
     started_at: datetime (not null)
-    ended_at: datetime | None           ← None = sesja aktywna
-    duration_minutes: int | None        ← wypełniane automatycznie przy stop
+    ended_at: datetime | None           ← None = active session
+    duration_minutes: int | None        ← filled automatically on stop
     created_at: datetime
 ```
 
-Indeks: `(user_id, started_at)` dla agregacji czasowych w MetricsService.
+Index on `(user_id, started_at)` for time aggregations in MetricsService.
 
-**Uwaga:** W danym momencie user może mieć tylko jedną aktywną sesję (`ended_at IS NULL`). Serwis powinien to egzekwować.
+**Note:** A user can have only one active session at a time (`ended_at IS NULL`). The service must enforce this constraint.
 
 ---
 
-### `report.py` — tabela `reports`
+### `report.py` — table `reports`
 
 ```python
 class Report(Base):
@@ -170,34 +170,34 @@ class Report(Base):
         # 'json' | 'csv' | 'pdf'
     status: str (not null, default='pending')
         # 'pending' | 'generating' | 'ready' | 'failed'
-    payload: dict | None                ← JSON payload dla format='json'
-    file_url: str | None                ← URL pliku dla format='csv'/'pdf'
-    error_message: str | None           ← szczegóły błędu gdy status='failed'
+    payload: dict | None                ← JSON payload for format='json'
+    file_url: str | None                ← file URL for format='csv'/'pdf'
+    error_message: str | None           ← error details when status='failed'
     generated_at: datetime | None
     created_at: datetime
 ```
 
 ---
 
-### `github_connection.py` — tabela `github_connections`
+### `github_connection.py` — table `github_connections`
 
 ```python
 class GitHubConnection(Base):
     __tablename__ = "github_connections"
 
     id: UUID (primary_key)
-    user_id: UUID (FK → users.id, unique, not null)  ← jeden user = jedno połączenie
+    user_id: UUID (FK → users.id, unique, not null)  ← one user = one connection
     github_user_id: int (not null)
     github_username: str (not null)
-    access_token_encrypted: bytes (not null)         ← szyfrowany Fernet
-    scopes: str (not null)                           ← np. "repo,read:user,read:org"
+    access_token_encrypted: bytes (not null)         ← Fernet-encrypted
+    scopes: str (not null)                           ← e.g. "repo,read:user,read:org"
     connected_at: datetime (default=now)
     last_sync_at: datetime | None
 ```
 
-## Kolejność migracji Alembic
+## Alembic Migration Order
 
-Migracje muszą być tworzone w tej kolejności (ze względu na FK):
+Migrations must be created in this order (due to FK dependencies):
 
 1. `users`
 2. `refresh_tokens` (FK → users)

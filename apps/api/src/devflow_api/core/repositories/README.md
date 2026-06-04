@@ -1,16 +1,16 @@
 # Repositories
 
-Data Access Objects — izolacja zapytań SQLAlchemy od logiki biznesowej.
+Data Access Objects — isolating SQLAlchemy queries from business logic.
 
-## Zasady
+## Rules
 
-- Repozytorium ukrywa szczegóły SQLAlchemy przed serwisami.
-- Brak logiki biznesowej — tylko budowanie zapytań i mapowanie wyników.
-- Route handlery nie importują repozytoriów bezpośrednio (egzekwowane przez test `test_architecture_boundaries.py`).
-- Każde repozytorium w osobnym pliku.
-- `AsyncSession` wstrzykiwana przez konstruktor (dependency injection).
+- A repository hides SQLAlchemy details from services.
+- No business logic — only query building and result mapping.
+- Route handlers do not import repositories directly (enforced by `test_architecture_boundaries.py`).
+- Each repository in its own file.
+- `AsyncSession` injected via constructor (dependency injection).
 
-## Wzorzec implementacji
+## Implementation Pattern
 
 ```python
 class UserRepository:
@@ -29,11 +29,11 @@ class UserRepository:
     async def create(self, **kwargs: Any) -> User:
         user = User(**kwargs)
         self._session.add(user)
-        await self._session.flush()   # flush zamiast commit — commit w serwisie
+        await self._session.flush()   # flush not commit — commit happens in the service
         return user
 ```
 
-## Repozytoria do zaimplementowania
+## Repositories to Implement
 
 ### `user.py` — `UserRepository`
 
@@ -114,7 +114,7 @@ async def list(
 async def update(task_id: UUID, **fields) -> Task
 async def delete(task_id: UUID) -> None
 
-# Agregacje dla MetricsService
+# Aggregations for MetricsService
 async def count_by_status(user_id: UUID, date_from: date, date_to: date) -> dict[str, int]
 async def list_completed_by_week(user_id: UUID, weeks: int = 8) -> list[tuple[date, int]]
 async def list_overdue(project_id: UUID) -> list[Task]
@@ -127,10 +127,10 @@ async def list_overdue(project_id: UUID) -> list[Task]
 ```python
 async def create(task_id: UUID, user_id: UUID) -> WorkSession   ← started_at=now
 async def get_active(user_id: UUID) -> WorkSession | None       ← ended_at IS NULL
-async def stop(session_id: UUID) -> WorkSession                 ← ustawia ended_at + duration
+async def stop(session_id: UUID) -> WorkSession                 ← sets ended_at + duration
 async def list_for_task(task_id: UUID) -> list[WorkSession]
 
-# Agregacje dla MetricsService
+# Aggregations for MetricsService
 async def sum_minutes_by_day(
     user_id: UUID,
     date_from: date,

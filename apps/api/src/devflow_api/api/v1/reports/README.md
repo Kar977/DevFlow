@@ -1,15 +1,14 @@
 # Reports Routes
 
-Generowanie i pobieranie raportów produktywności.
+Generating and retrieving productivity reports.
 
-Raporty generowane asynchronicznie jako background tasks. Po zleceniu user dostaje `report_id`
-i może odpytywać o status dopóki `status` nie zmieni się na `ready`.
+Reports are generated asynchronously as background tasks. After submitting a request the user receives a `report_id` and can poll for status until `status` changes to `ready`.
 
-## Endpointy do zaimplementowania
+## Endpoints to Implement
 
 ### `POST /api/v1/reports`
 
-Zlecenie wygenerowania raportu.
+Request a report to be generated.
 
 Request:
 ```json
@@ -21,14 +20,14 @@ Request:
 }
 ```
 
-Typy raportów:
-- `weekly_summary` — podsumowanie tygodnia: velocity, czas pracy, ukończone taski
-- `project_status` — status projektu (wymaga `project_id` w request)
-- `productivity_overview` — szerszy przegląd produktywności za wybrany okres
+Report types:
+- `weekly_summary` — weekly summary: velocity, work hours, completed tasks
+- `project_status` — project status (requires `project_id` in request)
+- `productivity_overview` — broader productivity overview for a selected period
 
-Formaty:
-- `json` — zwracany jako `payload` w response
-- `csv` — link do pobrania w `file_url`
+Formats:
+- `json` — returned as `payload` in response
+- `csv` — download link in `file_url`
 
 Response `202 Accepted`:
 ```json
@@ -44,13 +43,13 @@ Response `202 Accepted`:
 }
 ```
 
-Generowanie uruchamiane przez `FastAPI BackgroundTasks` — nie blokuje odpowiedzi.
+Generation is triggered by `FastAPI BackgroundTasks` — does not block the response.
 
 ---
 
 ### `GET /api/v1/reports`
 
-Lista raportów zalogowanego użytkownika.
+List reports for the authenticated user.
 
 Query params: `limit`, `offset`
 
@@ -75,7 +74,7 @@ Response `200 OK`:
 
 ### `GET /api/v1/reports/{report_id}`
 
-Pobranie raportu. Jeśli `status=ready`, `payload` lub `file_url` są wypełnione.
+Retrieve a report. When `status=ready`, `payload` or `file_url` are populated.
 
 Response `200 OK`:
 ```json
@@ -96,35 +95,35 @@ Response `200 OK`:
 }
 ```
 
-Gdy `status=pending` lub `generating`: payload jest null, client powinien odpytywać ponownie.
-Gdy `status=failed`: payload null, `error_message` wyjaśnia błąd.
+When `status=pending` or `generating`: payload is null, client should poll again.
+When `status=failed`: payload null, `error_message` explains the failure.
 
 ---
 
 ### `DELETE /api/v1/reports/{report_id}`
 
-Usuń raport.
+Delete a report.
 
 Response `204 No Content`.
-Błąd: `403` gdy raport należy do innego usera.
+Error: `403` when the report belongs to another user.
 
 ---
 
-## Cykl życia raportu
+## Report Lifecycle
 
 ```
 POST /reports → status: "pending"
     ↓ (background task starts)
 status: "generating"
     ↓ (success)
-status: "ready" + payload/file_url wypełnione
+status: "ready" + payload/file_url populated
     ↓ (or failure)
 status: "failed" + error_message
 ```
 
 ---
 
-## Struktura payload dla `weekly_summary`
+## Weekly Summary Payload Structure
 
 ```json
 {
@@ -156,11 +155,11 @@ status: "failed" + error_message
 
 ---
 
-## Pliki do stworzenia
+## Files to Create
 
-- `routes.py` — route handlery (zastąpić obecny placeholder)
+- `routes.py` — route handlers (replace current placeholder)
 - `../../../core/schemas/reports/` — `CreateReportRequest`, `ReportResponse`
 - `../../../core/services/report.py` — `ReportService` + background task generator
 - `../../../core/repositories/report.py` — `ReportRepository`
-- `../../../core/models/report.py` — model `Report`
-- Migracja Alembic: tabela `reports`
+- `../../../core/models/report.py` — `Report` model
+- Alembic migration: `reports` table

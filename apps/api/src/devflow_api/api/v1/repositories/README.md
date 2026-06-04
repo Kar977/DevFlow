@@ -1,22 +1,22 @@
 # Projects Routes
 
-Router `repositories` obsługuje domenę **projektów developerskich**.
+The `repositories` router handles the **developer projects** domain.
 
-Projekt to kontener dla tasków. Może być osobisty (bez `org_id`) lub należący do organizacji.
-Opcjonalnie powiązany z repozytorium GitHub przez `github_repo_url`.
+A project is a container for tasks. It can be personal (no `org_id`) or belong to an organization.
+Optionally linked to a GitHub repository via `github_repo_url`.
 
-## Endpointy do zaimplementowania
+## Endpoints to Implement
 
 ### `POST /api/v1/projects`
 
-Utwórz nowy projekt.
+Create a new project.
 
 Request:
 ```json
 {
   "name": "DevFlow Backend",
-  "description": "API dla DevFlow Insight",
-  "org_id": "uuid-lub-null",
+  "description": "API for DevFlow Insight",
+  "org_id": "uuid-or-null",
   "github_repo_url": "https://github.com/owner/repo"
 }
 ```
@@ -26,7 +26,7 @@ Response `201 Created`:
 {
   "id": "uuid",
   "name": "DevFlow Backend",
-  "description": "API dla DevFlow Insight",
+  "description": "API for DevFlow Insight",
   "status": "active",
   "org_id": null,
   "github_repo_url": "https://github.com/owner/repo",
@@ -34,18 +34,18 @@ Response `201 Created`:
 }
 ```
 
-Jeśli `org_id` podane: serwis weryfikuje że user jest memberem tej org.
+If `org_id` is provided, the service verifies that the user is a member of that org.
 
 ---
 
 ### `GET /api/v1/projects`
 
-Lista projektów użytkownika (osobistych + z org do których należy).
+List the user's projects (personal + from orgs they belong to).
 
 Query params:
-- `org_id` — filtruj po organizacji
-- `status` — `active` | `archived` (domyślnie: `active`)
-- `limit` — (domyślnie 20, max 100)
+- `org_id` — filter by organization
+- `status` — `active` | `archived` (default: `active`)
+- `limit` — (default 20, max 100)
 - `offset`
 
 Response `200 OK`:
@@ -60,7 +60,7 @@ Response `200 OK`:
 
 ### `GET /api/v1/projects/{project_id}`
 
-Szczegóły projektu wraz ze statystykami tasków.
+Project details with task statistics.
 
 Response `200 OK`:
 ```json
@@ -82,34 +82,34 @@ Response `200 OK`:
 
 ### `PATCH /api/v1/projects/{project_id}`
 
-Aktualizacja projektu. Wszystkie pola opcjonalne.
+Update project. All fields optional.
 
 Request: `UpdateProjectRequest`.
-Response `200 OK`: zaktualizowany `ProjectResponse`.
+Response `200 OK`: updated `ProjectResponse`.
 
 ---
 
 ### `DELETE /api/v1/projects/{project_id}`
 
-Archiwizacja projektu (zmiana `status` na `archived`, nie usunięcie z bazy).
-Taski projektu pozostają nienaruszone.
+Archive the project (sets `status` to `archived`, does not delete from DB).
+Project tasks remain intact.
 
 Response `204 No Content`.
 
 ---
 
-## Pliki do stworzenia
+## Files to Create
 
-- `routes.py` — route handlery (zastąpić obecny placeholder)
+- `routes.py` — route handlers (replace current placeholder)
 - `../../../core/schemas/projects/` — `CreateProjectRequest`, `UpdateProjectRequest`, `ProjectResponse`, `ProjectStatsResponse`
 - `../../../core/services/project.py` — `ProjectService`
 - `../../../core/repositories/project.py` — `ProjectRepository`
-- `../../../core/models/project.py` — model `Project`
-- Migracja Alembic: tabela `projects`
+- `../../../core/models/project.py` — `Project` model
+- Alembic migration: `projects` table
 
-## Uwaga — nazewnictwo URL
+## URL Naming Note
 
-Endpoint URL to `/api/v1/projects`, ale router w kodzie (`api/v1/repositories/`) zachowuje oryginalną nazwę katalogu dla ciągłości scaffoldu. Prefix routera należy zmienić w `routes.py`:
+The endpoint URL is `/api/v1/projects`, but the router directory in code (`api/v1/repositories/`) keeps its original name for scaffold continuity. Change the router prefix in `routes.py`:
 
 ```python
 router = APIRouter(prefix="/projects", tags=["Projects"])

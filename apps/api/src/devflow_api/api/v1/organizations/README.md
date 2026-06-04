@@ -1,18 +1,18 @@
 # Organizations Routes
 
-Zarządzanie workspace'ami i zespołami (organizations). Organization jest kontenerem dla projektów i memberów.
+Workspace and team management. An organization is a container for projects and members.
 
-## Endpointy do zaimplementowania
+## Endpoints to Implement
 
 ### `POST /api/v1/organizations`
 
-Utwórz nową organizację. Creator automatycznie dostaje rolę `owner`.
+Create a new organization. The creator is automatically assigned the `owner` role.
 
 Request:
 ```json
 {
   "name": "My Team",
-  "description": "Opis organizacji"
+  "description": "Organization description"
 }
 ```
 
@@ -22,18 +22,18 @@ Response `201 Created`:
   "id": "uuid",
   "name": "My Team",
   "slug": "my-team",
-  "description": "Opis organizacji",
+  "description": "Organization description",
   "created_at": "2025-01-01T10:00:00Z"
 }
 ```
 
-`slug` generowany automatycznie z `name` (lowercase, myślniki, unique).
+`slug` is generated automatically from `name` (lowercase, hyphens, unique).
 
 ---
 
 ### `GET /api/v1/organizations`
 
-Lista organizacji do których należy zalogowany użytkownik.
+List organizations the authenticated user belongs to.
 
 Response `200 OK`:
 ```json
@@ -49,34 +49,34 @@ Response `200 OK`:
 
 ### `GET /api/v1/organizations/{org_id}`
 
-Szczegóły organizacji. Dostępne tylko dla memberów.
+Organization details. Accessible only to members.
 
 Response `200 OK`: `OrganizationResponse`.
-Błędy: `404` gdy nie istnieje lub user nie jest memberem.
+Errors: `404` when it does not exist or the user is not a member.
 
 ---
 
 ### `PATCH /api/v1/organizations/{org_id}`
 
-Aktualizacja nazwy/opisu. Wymaga roli `admin` lub `owner`.
+Update name/description. Requires `admin` or `owner` role.
 
-Request: `UpdateOrganizationRequest` (pola opcjonalne).
-Response `200 OK`: zaktualizowany `OrganizationResponse`.
+Request: `UpdateOrganizationRequest` (optional fields).
+Response `200 OK`: updated `OrganizationResponse`.
 
 ---
 
 ### `DELETE /api/v1/organizations/{org_id}`
 
-Soft delete (ustawia `deleted_at`). Wymaga roli `owner`.
+Soft delete (sets `deleted_at`). Requires `owner` role.
 
 Response `204 No Content`.
-Błąd: `403` gdy user nie jest ownerem.
+Error: `403` when the user is not the owner.
 
 ---
 
 ### `POST /api/v1/organizations/{org_id}/members`
 
-Zaproś użytkownika do organizacji po emailu. Wymaga roli `admin` lub `owner`.
+Invite a user to the organization by email. Requires `admin` or `owner` role.
 
 Request:
 ```json
@@ -87,13 +87,13 @@ Request:
 ```
 
 Response `201 Created`: `MemberResponse`.
-Błąd: `404` gdy email nie istnieje w systemie, `409` gdy user już jest memberem.
+Errors: `404` when the email does not exist in the system, `409` when the user is already a member.
 
 ---
 
 ### `GET /api/v1/organizations/{org_id}/members`
 
-Lista memberów organizacji.
+List organization members.
 
 Response `200 OK`:
 ```json
@@ -113,30 +113,30 @@ Response `200 OK`:
 
 ### `DELETE /api/v1/organizations/{org_id}/members/{user_id}`
 
-Usuń membera z organizacji. Wymaga `admin` lub `owner`.
+Remove a member from the organization. Requires `admin` or `owner` role.
 
 Response `204 No Content`.
-Błąd: `400` gdy próba usunięcia jedynego ownera.
+Error: `400` when attempting to remove the sole owner.
 
 ---
 
-## Pliki do stworzenia
+## Files to Create
 
-- `routes.py` — route handlery
-- `../../../core/schemas/organizations/` — schematy
+- `routes.py` — route handlers
+- `../../../core/schemas/organizations/` — schemas
 - `../../../core/services/organization.py` — `OrganizationService`
 - `../../../core/repositories/organization.py` — `OrganizationRepository`
-- `../../../core/models/organization.py` — modele `Organization` + `OrganizationMember`
-- Migracja Alembic: tabele `organizations` i `organization_members`
+- `../../../core/models/organization.py` — `Organization` + `OrganizationMember` models
+- Alembic migration: `organizations` and `organization_members` tables
 
-## Autoryzacja
+## Authorization
 
-Role i ich uprawnienia:
+Role permissions matrix:
 
-| Akcja | member | admin | owner |
+| Action | member | admin | owner |
 |---|---|---|---|
-| Czytaj org i memberów | ✅ | ✅ | ✅ |
-| Edytuj org | ❌ | ✅ | ✅ |
-| Zaproś/usuń membera | ❌ | ✅ | ✅ |
-| Usuń org | ❌ | ❌ | ✅ |
-| Zmień rolę na owner | ❌ | ❌ | ✅ |
+| Read org and members | ✅ | ✅ | ✅ |
+| Edit org | ❌ | ✅ | ✅ |
+| Invite/remove member | ❌ | ✅ | ✅ |
+| Delete org | ❌ | ❌ | ✅ |
+| Change role to owner | ❌ | ❌ | ✅ |

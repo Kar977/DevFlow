@@ -1,25 +1,25 @@
 # Tasks Routes
 
-Router `pull_requests` obsługuje domenę **tasków i śledzenia czasu pracy**.
+The `pull_requests` router handles the **tasks and time tracking** domain.
 
-Task to podstawowy element pracy: może być tworzony ręcznie lub importowany z GitHub (PR/Issue).
-Do każdego taska można przypiąć sesję pracy z timerem.
+A task is the fundamental unit of work. It can be created manually or imported from GitHub (PR/Issue).
+Each task supports a work timer for time tracking.
 
-## Endpointy do zaimplementowania
+## Endpoints to Implement
 
 ### `POST /api/v1/tasks`
 
-Utwórz nowy task.
+Create a new task.
 
 Request:
 ```json
 {
   "title": "Implement auth module",
   "description": "JWT-based auth with refresh tokens",
-  "project_id": "uuid-lub-null",
+  "project_id": "uuid-or-null",
   "priority": "high",
   "estimate_minutes": 240,
-  "assignee_id": "uuid-lub-null",
+  "assignee_id": "uuid-or-null",
   "due_date": "2025-02-01"
 }
 ```
@@ -46,14 +46,14 @@ Response `201 Created`:
 
 ### `GET /api/v1/tasks`
 
-Lista tasków z filtrowaniem i paginacją.
+List tasks with filtering and pagination.
 
 Query params:
-- `project_id` — filtruj po projekcie
+- `project_id` — filter by project
 - `status` — `backlog` | `todo` | `in_progress` | `review` | `done` | `cancelled`
 - `priority` — `low` | `medium` | `high` | `critical`
-- `assignee_id` — filtruj po assignee
-- `limit` (domyślnie 20, max 100)
+- `assignee_id` — filter by assignee
+- `limit` (default 20, max 100)
 - `offset`
 
 Response `200 OK`:
@@ -68,21 +68,21 @@ Response `200 OK`:
 
 ### `GET /api/v1/tasks/{task_id}`
 
-Szczegóły taska.
+Task details.
 
 Response `200 OK`: `TaskResponse`.
-Błąd: `404` gdy nie istnieje lub user nie ma dostępu.
+Error: `404` when not found or user has no access.
 
 ---
 
 ### `PATCH /api/v1/tasks/{task_id}`
 
-Aktualizacja taska. Tylko pola które user chce zmienić (PATCH semantics).
+Update a task. Only the fields the user wants to change (PATCH semantics).
 
-Request: `UpdateTaskRequest` (wszystkie pola opcjonalne).
-Response `200 OK`: zaktualizowany `TaskResponse`.
+Request: `UpdateTaskRequest` (all fields optional).
+Response `200 OK`: updated `TaskResponse`.
 
-Przykład zmiany statusu:
+Example — change status:
 ```json
 { "status": "in_progress" }
 ```
@@ -91,7 +91,7 @@ Przykład zmiany statusu:
 
 ### `DELETE /api/v1/tasks/{task_id}`
 
-Usuń task (hard delete). Usuwa też powiązane `WorkSession`.
+Delete task (hard delete). Also deletes associated `WorkSession` records.
 
 Response `204 No Content`.
 
@@ -99,10 +99,10 @@ Response `204 No Content`.
 
 ### `POST /api/v1/tasks/{task_id}/start`
 
-Rozpocznij sesję pracy na tasku (uruchom timer).
+Start a work session on the task (start the timer).
 
-- Jeśli user ma już aktywną sesję na **innym** tasku: błąd `409` z informacją który task jest aktywny.
-- Jeśli task ma status `backlog` lub `todo`: automatycznie zmień na `in_progress`.
+- If the user already has an active session on a **different** task: `409 Conflict` with information about which task is active.
+- If the task has status `backlog` or `todo`: automatically change to `in_progress`.
 
 Response `201 Created`:
 ```json
@@ -119,10 +119,10 @@ Response `201 Created`:
 
 ### `POST /api/v1/tasks/{task_id}/stop`
 
-Zakończ aktywną sesję pracy (zatrzymaj timer).
+Stop the active work session (stop the timer).
 
-- `duration_minutes` obliczane automatycznie: `(ended_at - started_at).seconds // 60`
-- Minimum 1 minuta (sesje poniżej 1 min zapisywane jako 1 min)
+- `duration_minutes` calculated automatically: `(ended_at - started_at).seconds // 60`
+- Minimum 1 minute (sessions under 1 min are recorded as 1 min)
 
 Response `200 OK`:
 ```json
@@ -135,13 +135,13 @@ Response `200 OK`:
 }
 ```
 
-Błąd: `404` gdy nie ma aktywnej sesji dla tego taska i usera.
+Error: `404` when there is no active session for this task and user.
 
 ---
 
 ### `GET /api/v1/tasks/{task_id}/sessions`
 
-Historia sesji pracy na tasku.
+Work session history for the task.
 
 Response `200 OK`:
 ```json
@@ -160,7 +160,7 @@ Response `200 OK`:
 
 ---
 
-## Statusy taska — przejścia
+## Task Status Transitions
 
 ```
 backlog → todo → in_progress → review → done
@@ -168,25 +168,25 @@ backlog → todo → in_progress → review → done
                   cancelled           cancelled
 ```
 
-Serwis nie egzekwuje ściśle przejść — user może ustawiać dowolny status (np. bezpośrednio backlog → done).
-`source: 'github_pr'` i `source: 'github_issue'` taski mają status synchronizowany z GitHubem.
+The service does not strictly enforce transitions — a user can set any status directly (e.g. backlog → done).
+Tasks with `source: 'github_pr'` or `source: 'github_issue'` have status synchronized from GitHub.
 
 ---
 
-## Pliki do stworzenia
+## Files to Create
 
-- `routes.py` — route handlery (zastąpić obecny placeholder)
+- `routes.py` — route handlers (replace current placeholder)
 - `../../../core/schemas/tasks/` — `CreateTaskRequest`, `UpdateTaskRequest`, `TaskResponse`, `WorkSessionResponse`
 - `../../../core/services/task.py` — `TaskService`
 - `../../../core/repositories/task.py` — `TaskRepository`
 - `../../../core/repositories/work_session.py` — `WorkSessionRepository`
-- `../../../core/models/task.py` — model `Task`
-- `../../../core/models/work_session.py` — model `WorkSession`
-- Migracja Alembic: tabele `tasks` i `work_sessions`
+- `../../../core/models/task.py` — `Task` model
+- `../../../core/models/work_session.py` — `WorkSession` model
+- Alembic migration: `tasks` and `work_sessions` tables
 
-## Uwaga — nazewnictwo URL
+## URL Naming Note
 
-Prefix routera należy zmienić w `routes.py`:
+Change the router prefix in `routes.py`:
 
 ```python
 router = APIRouter(prefix="/tasks", tags=["Tasks"])

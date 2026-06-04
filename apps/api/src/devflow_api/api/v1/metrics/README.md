@@ -1,19 +1,19 @@
 # Metrics Routes
 
-Endpointy do pobierania metryk produktywności developera.
+Endpoints for retrieving developer productivity metrics.
 
-Metryki obliczane są przez `MetricsService` na podstawie danych z tabel `tasks` i `work_sessions`.
-Wymagają działającego modułu tasków z danymi.
+Metrics are computed by `MetricsService` from data in the `tasks` and `work_sessions` tables.
+Require a working tasks module with data.
 
-## Endpointy do zaimplementowania
+## Endpoints to Implement
 
 ### `GET /api/v1/metrics/summary`
 
-Pełne podsumowanie produktywności za wybrany okres.
+Full productivity summary for a selected period.
 
 Query params:
-- `date_from` — ISO 8601 date (domyślnie: 30 dni temu)
-- `date_to` — ISO 8601 date (domyślnie: dziś)
+- `date_from` — ISO 8601 date (default: 30 days ago)
+- `date_to` — ISO 8601 date (default: today)
 
 Response `200 OK`:
 ```json
@@ -39,16 +39,16 @@ Response `200 OK`:
 }
 ```
 
-`previous_value` i `delta_percent` obliczane dla analogicznego okresu poprzedniego (np. jeśli `date_from/to` = ostatnie 30 dni, previous = 30 dni przed tym).
+`previous_value` and `delta_percent` are computed against the equivalent preceding period (e.g. if `date_from/to` = last 30 days, previous = the 30 days before that).
 
 ---
 
 ### `GET /api/v1/metrics/velocity`
 
-Liczba ukończonych tasków per tydzień (ostatnie N tygodni).
+Number of completed tasks per week (last N weeks).
 
 Query params:
-- `weeks` — liczba tygodni wstecz (domyślnie 8, max 52)
+- `weeks` — number of weeks to look back (default 8, max 52)
 
 Response `200 OK`:
 ```json
@@ -63,13 +63,13 @@ Response `200 OK`:
 }
 ```
 
-`trend`: `up` gdy ostatnie 3 tygodnie rosnące, `down` gdy malejące, `stable` inaczej.
+`trend`: `up` when the last 3 weeks are increasing, `down` when decreasing, `stable` otherwise.
 
 ---
 
 ### `GET /api/v1/metrics/time-tracking`
 
-Dzienne godziny aktywnej pracy (suma `WorkSession.duration_minutes` per dzień).
+Daily active work hours (sum of `WorkSession.duration_minutes` per day).
 
 Query params:
 - `date_from`, `date_to`
@@ -85,13 +85,13 @@ Response `200 OK`:
 }
 ```
 
-Dni bez sesji nie są zwracane (sparse data).
+Days with no sessions are not returned (sparse data).
 
 ---
 
 ### `GET /api/v1/metrics/completion-rate`
 
-Procent tasków ukończonych w danym okresie.
+Percentage of tasks completed in a given period.
 
 Query params: `date_from`, `date_to`
 
@@ -109,13 +109,13 @@ Response `200 OK`:
 }
 ```
 
-Formuła: `done / (done + cancelled + open) * 100`
+Formula: `done / (done + cancelled + open) * 100`
 
 ---
 
 ### `GET /api/v1/metrics/estimation-accuracy`
 
-Dokładność szacowania czasu tasków.
+Accuracy of task time estimates.
 
 Query params: `date_from`, `date_to`
 
@@ -133,18 +133,18 @@ Response `200 OK`:
 }
 ```
 
-Kategorie:
-- `accurate`: ratio 0.8–1.2 (real time mieści się w ±20% estymacji)
-- `under_estimated`: ratio > 1.2 (zajęło więcej niż zakładano)
-- `over_estimated`: ratio < 0.8 (zajęło mniej niż zakładano)
+Categories:
+- `accurate`: ratio 0.8–1.2 (actual time within ±20% of estimate)
+- `under_estimated`: ratio > 1.2 (took longer than planned)
+- `over_estimated`: ratio < 0.8 (took less than planned)
 
-Liczone tylko dla tasków z `status=done` i uzupełnionym `estimate_minutes`.
+Calculated only for tasks with `status=done` and a filled `estimate_minutes`.
 
 ---
 
 ### `GET /api/v1/metrics/streaks`
 
-Streaki aktywności — serie dni z zamkniętym przynajmniej 1 taskiem.
+Activity streaks — consecutive days with at least 1 completed task.
 
 Response `200 OK`:
 ```json
@@ -159,7 +159,7 @@ Response `200 OK`:
 
 ### `GET /api/v1/metrics/projects/{project_id}`
 
-Metryki dla konkretnego projektu.
+Metrics for a specific project.
 
 Query params: `date_from`, `date_to`
 
@@ -181,27 +181,27 @@ Response `200 OK`:
 
 ---
 
-## Cachowanie
+## Caching
 
-Zapytania do metryk są kosztowne — agregacje na wielu wierszach. Należy cachować wyniki.
+Metrics queries are expensive — aggregations over many rows. Results must be cached.
 
-**Klucz cache:** `metrics:{user_id}:{endpoint}:{date_from}:{date_to}`
+**Cache key:** `metrics:{user_id}:{endpoint}:{date_from}:{date_to}`
 
-**TTL:** 5 minut (krótki bo user może właśnie zamknąć task i chcieć zobaczyć efekt)
+**TTL:** 5 minutes (short because the user may have just closed a task and want to see the effect)
 
-Implementacja:
-- Etap 1: słownik in-memory w `MetricsService` z `datetime` expiry
-- Etap 2: Redis (gdy Redis zostanie dodany do infrastruktury)
+Implementation:
+- Stage 1: in-memory dict in `MetricsService` with `datetime` expiry
+- Stage 2: Redis (once Redis is added to the infrastructure)
 
-Cache należy invalidować przy:
-- Zamknięciu taska (`status` → `done`)
-- Zakończeniu sesji pracy (`WorkSession.stop`)
+Cache should be invalidated when:
+- A task is closed (`status` → `done`)
+- A work session ends (`WorkSession.stop`)
 
 ---
 
-## Pliki do stworzenia
+## Files to Create
 
-- `routes.py` — route handlery (zastąpić obecny placeholder)
-- `../../../core/schemas/metrics/` — schematy response (opis w `core/schemas/README.md`)
+- `routes.py` — route handlers (replace current placeholder)
+- `../../../core/schemas/metrics/` — response schemas (described in `core/schemas/README.md`)
 - `../../../core/services/metrics.py` — `MetricsService`
-- Brak nowych modeli/repozytoriów — `MetricsService` korzysta z `TaskRepository` i `WorkSessionRepository`
+- No new models/repositories — `MetricsService` uses `TaskRepository` and `WorkSessionRepository`

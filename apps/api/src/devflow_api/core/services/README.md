@@ -1,16 +1,16 @@
 # Services
 
-Logika biznesowa i orchestracja przypadków użycia.
+Business logic and use case orchestration.
 
-## Zasady
+## Rules
 
-- Serwis nie zna FastAPI — brak importów z `fastapi` (poza typami jeśli konieczne).
-- Serwis przyjmuje repozytoria przez konstruktor (dependency injection).
-- Serwis koordynuje: repozytoria, inne serwisy, integracje zewnętrzne.
-- Każdy serwis w osobnym pliku.
-- Serwis jest testowalny bez TestClient — testowany jednostkowo z mock repozytoriami.
+- Services do not know about FastAPI — no imports from `fastapi` (except types if unavoidable).
+- Services receive repositories via constructor (dependency injection).
+- Services coordinate: repositories, other services, external integrations.
+- Each service in its own file.
+- Services are testable without TestClient — unit-tested with mock repositories.
 
-## Wzorzec implementacji
+## Implementation Pattern
 
 ```python
 class AuthService:
@@ -29,41 +29,41 @@ class AuthService:
         return await self._user_repo.create(email=email, hashed_password=hashed, full_name=full_name)
 ```
 
-## Serwisy do zaimplementowania
+## Services to Implement
 
 ### `auth.py` — `AuthService`
 
-Odpowiedzialność: rejestracja, autentykacja, zarządzanie tokenami JWT.
+Responsibility: registration, authentication, JWT token management.
 
 ```python
 async def register(email, password, full_name) -> User
-    # Sprawdź unikalność emaila
-    # Hash hasła (bcrypt, cost=12)
-    # Utwórz użytkownika
+    # Check email uniqueness
+    # Hash password (bcrypt, cost=12)
+    # Create user
 
 async def authenticate(email, password) -> tuple[str, str]
-    # Pobierz użytkownika po emailu
-    # Zweryfikuj hasło (bcrypt verify)
-    # Wygeneruj access_token (JWT, TTL 15 min)
-    # Wygeneruj refresh_token (opaque token, TTL 30 dni, hash w bazie)
-    # Zwróć (access_token, refresh_token)
+    # Fetch user by email
+    # Verify password (bcrypt verify)
+    # Generate access_token (JWT, TTL 15 min)
+    # Generate refresh_token (opaque token, TTL 30 days, hash stored in DB)
+    # Return (access_token, refresh_token)
 
 async def refresh(refresh_token: str) -> str
-    # Hash tokenu → pobierz z bazy
-    # Sprawdź czy nie wygasł i nie unieważniony
-    # Wygeneruj nowy access_token
-    # Zwróć access_token
+    # Hash token → fetch from DB
+    # Check not expired and not revoked
+    # Generate new access_token
+    # Return access_token
 
 async def revoke(refresh_token: str) -> None
-    # Hash tokenu → oznacz jako revoked w bazie
+    # Hash token → mark as revoked in DB
 
 async def get_current_user(user_id: UUID) -> User
-    # Pobierz użytkownika po ID (z tokenu JWT)
+    # Fetch user by ID (from JWT payload)
 
 async def update_profile(user_id: UUID, full_name, avatar_url) -> User
 ```
 
-Biblioteki: `python-jose[cryptography]` lub `PyJWT` dla JWT, `passlib[bcrypt]` dla haseł.
+Libraries: `python-jose[cryptography]` or `PyJWT` for JWT, `passlib[bcrypt]` for passwords.
 
 ---
 
@@ -71,31 +71,31 @@ Biblioteki: `python-jose[cryptography]` lub `PyJWT` dla JWT, `passlib[bcrypt]` d
 
 ```python
 async def create(name: str, created_by: UUID) -> Organization
-    # Generuj slug z nazwy (slugify)
-    # Sprawdź unikalność sluga
-    # Utwórz org
-    # Dodaj creatora jako 'owner'
+    # Generate slug from name (slugify)
+    # Check slug uniqueness
+    # Create org
+    # Add creator as 'owner'
 
 async def get(org_id: UUID, requester_id: UUID) -> Organization
-    # Sprawdź membership
+    # Check membership
 
 async def list_for_user(user_id: UUID) -> list[Organization]
 
 async def update(org_id: UUID, requester_id: UUID, **fields) -> Organization
-    # Sprawdź role (admin/owner)
+    # Check role (admin/owner)
 
 async def delete(org_id: UUID, requester_id: UUID) -> None
-    # Sprawdź rolę (owner)
+    # Check role (owner)
     # Soft delete
 
 async def invite_member(org_id: UUID, email: str, role: str, requester_id: UUID) -> OrganizationMember
-    # Sprawdź rolę requestera (admin/owner)
-    # Znajdź user po emailu (lub zwróć błąd)
-    # Dodaj membership
+    # Check requester role (admin/owner)
+    # Find user by email (or raise error)
+    # Add membership
 
 async def remove_member(org_id: UUID, user_id: UUID, requester_id: UUID) -> None
-    # Sprawdź rolę requestera
-    # Nie można usunąć jedynego ownera
+    # Check requester role
+    # Cannot remove the sole owner
 ```
 
 ---
@@ -104,11 +104,11 @@ async def remove_member(org_id: UUID, user_id: UUID, requester_id: UUID) -> None
 
 ```python
 async def create(name: str, created_by: UUID, org_id: UUID | None, **kwargs) -> Project
-    # Jeśli org_id podane: sprawdź membership w org
-    # Utwórz projekt
+    # If org_id provided: verify membership in org
+    # Create project
 
 async def get(project_id: UUID, requester_id: UUID) -> Project
-    # Sprawdź dostęp (owner lub org member)
+    # Check access (owner or org member)
 
 async def list(user_id: UUID, **filters) -> tuple[list[Project], int]
 
@@ -118,14 +118,14 @@ async def archive(project_id: UUID, requester_id: UUID) -> None
 
 async def get_stats(project_id: UUID) -> ProjectStats
     # total_tasks, open_tasks, overdue_tasks, completion_rate
-    # Używa TaskRepository.count_by_status + TaskRepository.list_overdue
+    # Uses TaskRepository.count_by_status + TaskRepository.list_overdue
 ```
 
 ---
 
 ### `task.py` — `TaskService`
 
-Odpowiedzialność: CRUD tasków + time tracking (start/stop sesji pracy).
+Responsibility: task CRUD + time tracking (start/stop work sessions).
 
 ```python
 async def create(title: str, created_by: UUID, **kwargs) -> Task
@@ -139,14 +139,14 @@ async def update(task_id: UUID, requester_id: UUID, **fields) -> Task
 async def delete(task_id: UUID, requester_id: UUID) -> None
 
 async def start_session(task_id: UUID, user_id: UUID) -> WorkSession
-    # Sprawdź czy nie ma aktywnej sesji dla tego usera
-    # Jeśli task ma status 'backlog'/'todo' → zmień na 'in_progress'
-    # Utwórz WorkSession
+    # Check no active session exists for this user
+    # If task status is 'backlog'/'todo' → change to 'in_progress'
+    # Create WorkSession
 
 async def stop_session(task_id: UUID, user_id: UUID) -> WorkSession
-    # Znajdź aktywną sesję
-    # Oblicz duration_minutes = (now - started_at).seconds // 60
-    # Zaktualizuj sesję (ended_at, duration_minutes)
+    # Find active session
+    # Calculate duration_minutes = (now - started_at).seconds // 60
+    # Update session (ended_at, duration_minutes)
 
 async def list_sessions(task_id: UUID) -> list[WorkSession]
 ```
@@ -155,37 +155,37 @@ async def list_sessions(task_id: UUID) -> list[WorkSession]
 
 ### `metrics.py` — `MetricsService`
 
-Odpowiedzialność: obliczanie wszystkich metryk produktywności.
+Responsibility: compute all productivity metrics.
 
 ```python
 async def get_summary(user_id: UUID, date_from: date, date_to: date) -> MetricsSummary
-    # Zbiera wszystkie metryki: velocity, completion_rate, total_work_hours,
+    # Collects all metrics: velocity, completion_rate, total_work_hours,
     # estimation_accuracy, current_streak
-    # Porównuje z poprzednim równoważnym okresem (delta %)
+    # Compares to the previous equivalent period (delta %)
 
 async def get_velocity(user_id: UUID, weeks: int = 8) -> VelocityData
-    # Liczba ukończonych tasków per tydzień z trendem
-    # Używa TaskRepository.list_completed_by_week
+    # Completed tasks per week with trend
+    # Uses TaskRepository.list_completed_by_week
 
 async def get_time_tracking(user_id: UUID, date_from: date, date_to: date) -> TimeTrackingData
-    # Godziny pracy per dzień
-    # Używa WorkSessionRepository.sum_minutes_by_day
+    # Work hours per day
+    # Uses WorkSessionRepository.sum_minutes_by_day
 
 async def get_completion_rate(user_id: UUID, date_from: date, date_to: date) -> float
     # done / (done + cancelled + open) * 100
 
 async def get_estimation_accuracy(user_id: UUID, date_from: date, date_to: date) -> AccuracyData
-    # Dla tasków done z estimate_minutes: actual/estimate ratio
-    # Kategorie: under_estimated, accurate, over_estimated
+    # For done tasks with estimate_minutes: actual/estimate ratio
+    # Categories: under_estimated, accurate, over_estimated
 
 async def get_streaks(user_id: UUID) -> StreakData
-    # current_streak: ile kolejnych dni z >= 1 done task
-    # longest_streak: rekordowa seria
+    # current_streak: consecutive days with >= 1 done task
+    # longest_streak: all-time record
 
 async def get_project_metrics(project_id: UUID, requester_id: UUID) -> ProjectMetrics
 ```
 
-**Cachowanie:** Wyniki `get_summary` i `get_velocity` powinny być cachowane przez 5 minut. Na starcie implementuj prostym `functools.lru_cache` z TTL lub słownikiem; Redis jako kolejny krok.
+**Caching:** Results of `get_summary` and `get_velocity` should be cached for 5 minutes. Start with a simple in-memory dict with TTL; add Redis as a next step.
 
 ---
 
@@ -193,16 +193,16 @@ async def get_project_metrics(project_id: UUID, requester_id: UUID) -> ProjectMe
 
 ```python
 async def request(user_id: UUID, type: str, format: str, **params) -> Report
-    # Utwórz rekord Report ze statusem 'pending'
+    # Create Report record with status 'pending'
     # Enqueue background task (FastAPI BackgroundTasks)
-    # Zwróć Report
+    # Return Report
 
 async def generate(report_id: UUID) -> None   ← background task
-    # Zmień status na 'generating'
-    # Zbierz dane (MetricsService / TaskRepository)
-    # Serializuj do JSON / CSV
-    # Zaktualizuj Report (status='ready', payload lub file_url)
-    # W razie błędu: status='failed', error_message
+    # Change status to 'generating'
+    # Gather data (MetricsService / TaskRepository)
+    # Serialize to JSON / CSV
+    # Update Report (status='ready', payload or file_url)
+    # On error: status='failed', error_message
 
 async def get(report_id: UUID, requester_id: UUID) -> Report
 
@@ -217,29 +217,29 @@ async def delete(report_id: UUID, requester_id: UUID) -> None
 
 ```python
 async def start_oauth(user_id: UUID) -> str
-    # Generuj state (CSRF token), zapisz w sesji/cache
-    # Zwróć URL autoryzacji GitHub OAuth
+    # Generate state (CSRF token), save in cache/session
+    # Return GitHub OAuth authorization URL
 
 async def complete_oauth(code: str, state: str) -> GitHubConnection
-    # Zweryfikuj state
-    # Wymień code na access_token (GitHubOAuthClient)
-    # Pobierz profil GitHub usera
-    # Zaszyfruj token (Fernet)
-    # Zapisz GitHubConnection
+    # Verify state
+    # Exchange code for access_token (GitHubOAuthClient)
+    # Fetch GitHub user profile
+    # Encrypt token (Fernet)
+    # Save GitHubConnection
 
 async def disconnect(user_id: UUID) -> None
-    # Usuń GitHubConnection
-    # Opcjonalnie: cofnij token w GitHub API
+    # Delete GitHubConnection
+    # Optionally: revoke token via GitHub API
 
 async def sync(user_id: UUID) -> SyncResult
-    # Pobierz GitHubConnection
-    # Przez GitHubClient pobierz PR i Issues
-    # Utwórz/aktualizuj Taski z source='github_pr'/'github_issue'
-    # Zaktualizuj last_sync_at
+    # Fetch GitHubConnection
+    # Fetch PRs and Issues via GitHubClient
+    # Create/update Tasks with source='github_pr'/'github_issue'
+    # Update last_sync_at
 
 async def handle_webhook(payload: dict, signature: str) -> None
-    # Zweryfikuj HMAC-SHA256 signature
-    # Parsuj event type (pull_request, issues)
-    # Dla PR.opened/closed/merged: utwórz/aktualizuj Task
-    # Dla issues.opened/closed: utwórz/aktualizuj Task
+    # Verify HMAC-SHA256 signature
+    # Parse event type (pull_request, issues)
+    # For PR.opened/closed/merged: create/update Task
+    # For issues.opened/closed: create/update Task
 ```

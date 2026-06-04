@@ -1,26 +1,26 @@
 # Schemas
 
-Pydantic v2 modele dla kontraktów request/response API.
+Pydantic v2 models for request/response API contracts.
 
-## Zasady
+## Rules
 
-- Oddzielne schematy dla request i response — nigdy ten sam model dla obu.
-- Każda domena w osobnym podkatalogu (`auth/`, `organizations/`, `tasks/`, etc.).
-- Schematy response nie ujawniają wrażliwych pól (np. `hashed_password`).
-- Używaj `model_config = ConfigDict(from_attributes=True)` w schematach response (mapowanie z ORM).
-- Pola opcjonalne w PATCH requestach jako `T | None = None` z `model_config = ConfigDict(...)`.
+- Separate schemas for request and response — never reuse the same model for both.
+- Each domain in its own subdirectory (`auth/`, `organizations/`, `tasks/`, etc.).
+- Response schemas do not expose sensitive fields (e.g. `hashed_password`).
+- Use `model_config = ConfigDict(from_attributes=True)` in response schemas (ORM mapping).
+- Optional fields in PATCH requests as `T | None = None`.
 
-## Wzorzec implementacji
+## Implementation Pattern
 
 ```python
-# Request — walidacja inputu
+# Request — input validation
 class CreateTaskRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
     priority: Literal['low', 'medium', 'high', 'critical'] = 'medium'
     estimate_minutes: int | None = Field(None, ge=1, le=480)
 
-# Response — kontrakt wyjścia
+# Response — output contract
 class TaskResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,7 +31,7 @@ class TaskResponse(BaseModel):
     created_at: datetime
 ```
 
-## Schematy do zaimplementowania
+## Schemas to Implement
 
 ### `auth/`
 
@@ -58,7 +58,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    expires_in: int  # sekundy
+    expires_in: int  # seconds
 
 class AccessTokenResponse(BaseModel):
     access_token: str
@@ -210,7 +210,7 @@ class VelocityPoint(BaseModel):
 
 class VelocityResponse(BaseModel):
     current_week: int
-    data: list[VelocityPoint]  # ostatnie N tygodni
+    data: list[VelocityPoint]  # last N weeks
     trend: Literal['up', 'down', 'stable']
 
 class TimeTrackingPoint(BaseModel):
@@ -231,7 +231,7 @@ class StreakResponse(BaseModel):
     longest_streak: int
 
 class MetricsSummaryResponse(BaseModel):
-    velocity: MetricValue       # taski/tydzień
+    velocity: MetricValue       # tasks/week
     completion_rate: MetricValue # %
     active_hours_per_day: MetricValue
     current_streak: int
@@ -247,7 +247,7 @@ class MetricsSummaryResponse(BaseModel):
 class CreateReportRequest(BaseModel):
     type: Literal['weekly_summary', 'project_status', 'productivity_overview']
     format: Literal['json', 'csv'] = 'json'
-    project_id: UUID | None = None     # wymagane dla type='project_status'
+    project_id: UUID | None = None     # required for type='project_status'
     date_from: date | None = None
     date_to: date | None = None
 

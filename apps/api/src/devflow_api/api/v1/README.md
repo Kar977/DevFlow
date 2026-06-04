@@ -1,119 +1,119 @@
 # API v1
 
-Wersja 1 publicznego kontraktu HTTP API. Wszystkie trasy montowane pod `/api/v1`.
+Version 1 of the public HTTP API contract. All routes are mounted under `/api/v1`.
 
-## Pełna lista endpointów
+## Full Endpoint List
 
 ### System
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| GET | `/health` | Health check | Nie |
-| GET | `/api/v1` | Status API | Nie |
+| GET | `/health` | Health check | No |
+| GET | `/api/v1` | API status | No |
 
 ### Auth
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | Rejestracja | Nie |
-| POST | `/api/v1/auth/login` | Logowanie → JWT | Nie |
-| POST | `/api/v1/auth/refresh` | Odnowienie access token | Refresh token |
-| POST | `/api/v1/auth/logout` | Wylogowanie | Bearer |
-| GET | `/api/v1/auth/me` | Profil użytkownika | Bearer |
-| PATCH | `/api/v1/auth/me` | Aktualizacja profilu | Bearer |
+| POST | `/api/v1/auth/register` | Register | No |
+| POST | `/api/v1/auth/login` | Login → JWT | No |
+| POST | `/api/v1/auth/refresh` | Refresh access token | Refresh token |
+| POST | `/api/v1/auth/logout` | Logout | Bearer |
+| GET | `/api/v1/auth/me` | Current user profile | Bearer |
+| PATCH | `/api/v1/auth/me` | Update profile | Bearer |
 
 ### Organizations
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/organizations` | Utwórz org | Bearer |
-| GET | `/api/v1/organizations` | Lista moich org | Bearer |
-| GET | `/api/v1/organizations/{org_id}` | Szczegóły org | Bearer |
-| PATCH | `/api/v1/organizations/{org_id}` | Aktualizuj org | Bearer (admin+) |
-| DELETE | `/api/v1/organizations/{org_id}` | Usuń org | Bearer (owner) |
-| POST | `/api/v1/organizations/{org_id}/members` | Zaproś membera | Bearer (admin+) |
-| GET | `/api/v1/organizations/{org_id}/members` | Lista memberów | Bearer |
-| DELETE | `/api/v1/organizations/{org_id}/members/{user_id}` | Usuń membera | Bearer (admin+) |
+| POST | `/api/v1/organizations` | Create org | Bearer |
+| GET | `/api/v1/organizations` | List my orgs | Bearer |
+| GET | `/api/v1/organizations/{org_id}` | Org details | Bearer |
+| PATCH | `/api/v1/organizations/{org_id}` | Update org | Bearer (admin+) |
+| DELETE | `/api/v1/organizations/{org_id}` | Delete org | Bearer (owner) |
+| POST | `/api/v1/organizations/{org_id}/members` | Invite member | Bearer (admin+) |
+| GET | `/api/v1/organizations/{org_id}/members` | List members | Bearer |
+| DELETE | `/api/v1/organizations/{org_id}/members/{user_id}` | Remove member | Bearer (admin+) |
 
 ### Projects (router: `/repositories`)
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/projects` | Utwórz projekt | Bearer |
-| GET | `/api/v1/projects` | Lista projektów | Bearer |
-| GET | `/api/v1/projects/{project_id}` | Szczegóły projektu | Bearer |
-| PATCH | `/api/v1/projects/{project_id}` | Aktualizuj projekt | Bearer |
-| DELETE | `/api/v1/projects/{project_id}` | Archiwizuj projekt | Bearer |
+| POST | `/api/v1/projects` | Create project | Bearer |
+| GET | `/api/v1/projects` | List projects | Bearer |
+| GET | `/api/v1/projects/{project_id}` | Project details | Bearer |
+| PATCH | `/api/v1/projects/{project_id}` | Update project | Bearer |
+| DELETE | `/api/v1/projects/{project_id}` | Archive project | Bearer |
 
 ### Tasks + Time Tracking (router: `/pull-requests`)
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/tasks` | Utwórz task | Bearer |
-| GET | `/api/v1/tasks` | Lista tasków | Bearer |
-| GET | `/api/v1/tasks/{task_id}` | Szczegóły taska | Bearer |
-| PATCH | `/api/v1/tasks/{task_id}` | Aktualizuj task | Bearer |
-| DELETE | `/api/v1/tasks/{task_id}` | Usuń task | Bearer |
-| POST | `/api/v1/tasks/{task_id}/start` | Rozpocznij sesję pracy | Bearer |
-| POST | `/api/v1/tasks/{task_id}/stop` | Zakończ sesję pracy | Bearer |
-| GET | `/api/v1/tasks/{task_id}/sessions` | Historia sesji | Bearer |
+| POST | `/api/v1/tasks` | Create task | Bearer |
+| GET | `/api/v1/tasks` | List tasks | Bearer |
+| GET | `/api/v1/tasks/{task_id}` | Task details | Bearer |
+| PATCH | `/api/v1/tasks/{task_id}` | Update task | Bearer |
+| DELETE | `/api/v1/tasks/{task_id}` | Delete task | Bearer |
+| POST | `/api/v1/tasks/{task_id}/start` | Start work session | Bearer |
+| POST | `/api/v1/tasks/{task_id}/stop` | Stop work session | Bearer |
+| GET | `/api/v1/tasks/{task_id}/sessions` | Session history | Bearer |
 
 ### Metrics
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| GET | `/api/v1/metrics/summary` | Podsumowanie produktywności | Bearer |
-| GET | `/api/v1/metrics/velocity` | Velocity (taski/tydzień) | Bearer |
-| GET | `/api/v1/metrics/time-tracking` | Czas pracy dziennie | Bearer |
-| GET | `/api/v1/metrics/completion-rate` | % ukończonych tasków | Bearer |
-| GET | `/api/v1/metrics/estimation-accuracy` | Dokładność estymacji | Bearer |
-| GET | `/api/v1/metrics/streaks` | Streaki aktywności | Bearer |
-| GET | `/api/v1/metrics/projects/{project_id}` | Metryki projektu | Bearer |
+| GET | `/api/v1/metrics/summary` | Productivity summary | Bearer |
+| GET | `/api/v1/metrics/velocity` | Velocity (tasks/week) | Bearer |
+| GET | `/api/v1/metrics/time-tracking` | Daily work hours | Bearer |
+| GET | `/api/v1/metrics/completion-rate` | % completed tasks | Bearer |
+| GET | `/api/v1/metrics/estimation-accuracy` | Estimation accuracy | Bearer |
+| GET | `/api/v1/metrics/streaks` | Activity streaks | Bearer |
+| GET | `/api/v1/metrics/projects/{project_id}` | Project metrics | Bearer |
 
 ### Reports
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/reports` | Wygeneruj raport | Bearer |
-| GET | `/api/v1/reports` | Lista raportów | Bearer |
-| GET | `/api/v1/reports/{report_id}` | Pobierz raport | Bearer |
-| DELETE | `/api/v1/reports/{report_id}` | Usuń raport | Bearer |
+| POST | `/api/v1/reports` | Generate report | Bearer |
+| GET | `/api/v1/reports` | List reports | Bearer |
+| GET | `/api/v1/reports/{report_id}` | Get report | Bearer |
+| DELETE | `/api/v1/reports/{report_id}` | Delete report | Bearer |
 
 ### GitHub Integration
 
-| Metoda | Ścieżka | Opis | Auth |
+| Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/integrations/github/authorize` | Inicjuj OAuth flow | Bearer |
+| POST | `/api/v1/integrations/github/authorize` | Start OAuth flow | Bearer |
 | GET | `/api/v1/integrations/github/callback` | OAuth callback | — |
-| GET | `/api/v1/integrations/github/status` | Status połączenia | Bearer |
-| DELETE | `/api/v1/integrations/github/disconnect` | Odłącz GitHub | Bearer |
-| POST | `/api/v1/integrations/github/sync` | Ręczna synchronizacja | Bearer |
+| GET | `/api/v1/integrations/github/status` | Connection status | Bearer |
+| DELETE | `/api/v1/integrations/github/disconnect` | Disconnect GitHub | Bearer |
+| POST | `/api/v1/integrations/github/sync` | Manual sync | Bearer |
 | POST | `/api/v1/integrations/github/webhooks` | Webhook receiver | HMAC |
 
-## Konwencje URL
+## URL Conventions
 
-- Zasoby w liczbie mnogiej: `/tasks`, `/projects`, `/organizations`
-- ID zasobu w ścieżce: `/tasks/{task_id}` (UUID)
-- Akcje jako pod-zasoby: `/tasks/{task_id}/start`, `/tasks/{task_id}/stop`
-- Sub-kolekcje: `/organizations/{org_id}/members`
-- Query params dla filtrowania: `?status=in_progress&priority=high`
-- Paginacja: `?limit=20&offset=0` (domyślnie limit=20, max=100)
+- Resources in plural: `/tasks`, `/projects`, `/organizations`
+- Resource ID in path: `/tasks/{task_id}` (UUID)
+- Actions as sub-resources: `/tasks/{task_id}/start`, `/tasks/{task_id}/stop`
+- Sub-collections: `/organizations/{org_id}/members`
+- Query params for filtering: `?status=in_progress&priority=high`
+- Pagination: `?limit=20&offset=0` (default limit=20, max=100)
 
-## Standardowe kody HTTP
+## Standard HTTP Status Codes
 
-| Kod | Kiedy |
+| Code | When |
 |---|---|
-| 200 | GET, PATCH — sukces |
-| 201 | POST — zasób utworzony |
-| 204 | DELETE — sukces, brak body |
-| 400 | Błąd walidacji wejścia |
-| 401 | Brak lub nieważny token |
-| 403 | Brak uprawnień |
-| 404 | Zasób nie istnieje |
-| 409 | Konflikt (np. email zajęty) |
-| 422 | Błąd parsowania requestu (Pydantic) |
+| 200 | GET, PATCH — success |
+| 201 | POST — resource created |
+| 204 | DELETE — success, no body |
+| 400 | Input validation error |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 404 | Resource not found |
+| 409 | Conflict (e.g. email already taken) |
+| 422 | Request parsing error (Pydantic) |
 
-## Format response z paginacją
+## Paginated Response Format
 
 ```json
 {
@@ -126,14 +126,14 @@ Wersja 1 publicznego kontraktu HTTP API. Wszystkie trasy montowane pod `/api/v1`
 }
 ```
 
-## Status implementacji
+## Implementation Status
 
 | Router | Status |
 |---|---|
-| auth | Placeholder → do zaimplementowania |
-| organizations | Placeholder → do zaimplementowania |
-| repositories (projects) | Placeholder → do zaimplementowania |
-| pull_requests (tasks) | Placeholder → do zaimplementowania |
-| metrics | Placeholder → do zaimplementowania |
-| reports | Placeholder → do zaimplementowania |
-| integrations/github | Placeholder → do zaimplementowania |
+| auth | Placeholder → to be implemented |
+| organizations | Placeholder → to be implemented |
+| repositories (projects) | Placeholder → to be implemented |
+| pull_requests (tasks) | Placeholder → to be implemented |
+| metrics | Placeholder → to be implemented |
+| reports | Placeholder → to be implemented |
+| integrations/github | Placeholder → to be implemented |

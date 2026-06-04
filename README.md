@@ -1,45 +1,45 @@
 # DevFlow Insight
 
-DevFlow Insight to narzędzie produktywności dla developerów. Pozwala zarządzać projektami i taskami, śledzić czas pracy oraz mierzyć własną produktywność przez dashboardy analityczne.
+DevFlow Insight is a developer productivity platform. It allows developers to manage projects and tasks, track work time, and measure their productivity through analytics dashboards.
 
-## Czym jest DevFlow Insight?
+## What is DevFlow Insight?
 
-Developer loguje się i może:
-- Tworzyć projekty i organizować pracę w zespołach (organizations)
-- Zarządzać taskami: status, priorytet, estymacja czasu
-- Śledzić czas pracy na taskach (start/stop timer)
-- Przeglądać dashboardy z metrykami: velocity, completion rate, estimation accuracy, streaki aktywności
-- Opcjonalnie: połączyć konto GitHub i synchronizować PR/issues jako taski
+A developer can log in and:
+- Create projects and organize work in teams (organizations)
+- Manage tasks: status, priority, time estimates
+- Track time spent on tasks (start/stop timer)
+- View productivity dashboards: velocity, completion rate, estimation accuracy, activity streaks
+- Optionally: connect a GitHub account and sync PRs/issues as tasks
 
-## Roadmapa
+## Roadmap
 
-### Etap 1 — Backend API (aktualny etap)
+### Stage 1 — Backend API (current stage)
 
-Wyłącznie backend FastAPI z pełnym REST API. Brak frontendu.
+Backend only (FastAPI REST API). No frontend yet.
 
-Domeny do zaimplementowania (kolejność odzwierciedla zależności):
-1. **Auth** — rejestracja, logowanie JWT, zarządzanie tokenami
-2. **Organizations** — workspace/team management z rolami
-3. **Projects** — projekty developerskie (router: `/repositories`)
-4. **Tasks + Time Tracking** — taski z timerem (router: `/pull-requests`)
-5. **Metrics** — metryki produktywności i dashboardy
-6. **Reports** — eksport danych (JSON → CSV/PDF)
-7. **GitHub Integration** — opcjonalna synchronizacja z GitHub
+Domains to implement (in dependency order):
+1. **Auth** — registration, JWT login, token management
+2. **Organizations** — workspace/team management with roles
+3. **Projects** — developer projects (router: `/repositories`)
+4. **Tasks + Time Tracking** — tasks with timer (router: `/pull-requests`)
+5. **Metrics** — productivity metrics and dashboards
+6. **Reports** — data export (JSON → CSV/PDF)
+7. **GitHub Integration** — optional GitHub sync
 
-### Etap 2 — Frontend (planowany)
+### Stage 2 — Frontend (planned)
 
-Aplikacja React + TypeScript + Vite w `apps/web/`. Widoki:
-- Ekran logowania i rejestracji
-- Dashboard z metrykami developera
-- Lista projektów i tasków (Kanban/Lista)
-- Timer do śledzenia czasu pracy
-- Widok raportów i eksportów
+React + TypeScript + Vite application in `apps/web/`. Views:
+- Login and registration screens
+- Developer metrics dashboard
+- Project and task list (Kanban/List view)
+- Work time tracker
+- Reports and export view
 
-## Architektura systemu
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    KLIENCI (Etap 2)                  │
+│                  CLIENTS (Stage 2)                   │
 │         React App (apps/web)  |  Swagger UI          │
 └─────────────────┬───────────────────────────────────┘
                   │ HTTP/REST
@@ -62,49 +62,49 @@ Aplikacja React + TypeScript + Vite w `apps/web/`. Widoki:
 └─────────────────────────────────────────────────────┘
 ```
 
-## Layout monorepo
+## Monorepo Layout
 
 ```
 devflow/
 ├── apps/
-│   └── api/                # FastAPI backend (Etap 1)
+│   └── api/                # FastAPI backend (Stage 1)
 │       ├── src/devflow_api/
 │       │   ├── api/v1/     # Route handlers per domain
 │       │   └── core/       # Config, DB, models, services
 │       ├── tests/
 │       ├── migrations/     # Alembic migrations
-│       └── README.md       # Pełna spec API
+│       └── README.md       # Full API spec
 ├── docs/
 │   └── product/
-│       └── README.md       # Wymagania produktowe i user stories
+│       └── README.md       # Product requirements and user stories
 ├── infra/
 │   ├── docker-compose.yml  # API + PostgreSQL + Redis
-│   └── README.md           # Instrukcja infrastruktury
-└── README.md               # Ten plik
+│   └── README.md           # Infrastructure guide
+└── README.md               # This file
 ```
 
-## Szybki start
+## Quick Start
 
-Wymagania: Docker, Docker Compose.
+Requirements: Docker, Docker Compose.
 
 ```powershell
-# 1. Skopiuj konfigurację środowiska
+# 1. Copy environment config
 cp apps/api/.env.example apps/api/.env
 
-# 2. Uruchom stack
+# 2. Start the stack
 docker compose -f infra/docker-compose.yml up -d
 
-# 3. Uruchom migracje bazy
+# 3. Run database migrations
 docker compose -f infra/docker-compose.yml exec api uv run alembic upgrade head
 
-# 4. Sprawdź czy działa
+# 4. Verify it's running
 curl http://localhost:8000/health
 ```
 
-API jest dostępne pod `http://localhost:8000`. Interaktywna dokumentacja Swagger: `http://localhost:8000/docs`.
+API is available at `http://localhost:8000`. Interactive Swagger docs: `http://localhost:8000/docs`.
 
-## Dokumentacja
+## Documentation
 
-- [Backend API](apps/api/README.md) — specyfikacja endpointów, modele danych, development guide
-- [Wymagania produktowe](docs/product/README.md) — user stories, metryki, wizja
-- [Infrastruktura](infra/README.md) — Docker, CI/CD, deployment
+- [Backend API](apps/api/README.md) — endpoint spec, data models, development guide
+- [Product Requirements](docs/product/README.md) — user stories, metrics, vision
+- [Infrastructure](infra/README.md) — Docker, CI/CD, deployment
