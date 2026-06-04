@@ -46,9 +46,7 @@ def hash_token(token: str) -> str:
 def create_access_token(subject_id: str) -> str:
     """Return a signed JWT access token for the given subject ID."""
     settings = get_settings()
-    expire = datetime.now(UTC) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload: dict[str, object] = {"sub": subject_id, "exp": expire}
     return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
