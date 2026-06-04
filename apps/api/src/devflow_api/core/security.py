@@ -2,6 +2,7 @@
 
 import hashlib
 import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -21,6 +22,10 @@ class AuthenticatedSubject:
     """Authenticated caller identity passed into protected use cases."""
 
     subject_id: str
+
+    @property
+    def user_id(self) -> uuid.UUID:
+        return uuid.UUID(self.subject_id)
 
 
 def hash_password(password: str) -> str:
