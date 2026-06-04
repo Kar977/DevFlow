@@ -29,3 +29,5 @@ Thumbs.db
 # Local database and infra state
 *.sqlite3
 postgres-data/
+.local_docs/
+*.exe.stackdump
