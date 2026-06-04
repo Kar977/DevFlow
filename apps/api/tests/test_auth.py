@@ -289,10 +289,11 @@ def _register_and_login(client: TestClient) -> dict[str, str]:
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
     )
-    return client.post(  # type: ignore[return-value]
+    result: dict[str, str] = client.post(
         "/api/v1/auth/login",
         json={"email": "u@example.com", "password": "password1"},
     ).json()
+    return result
 
 
 def test_logout_revokes_refresh_token(auth_client: TestClient) -> None:
