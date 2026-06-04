@@ -1,19 +1,110 @@
 # DevFlow Insight
 
-DevFlow Insight is a monorepo-ready workspace for building product and engineering
-analytics around developer flow.
+DevFlow Insight is a developer productivity platform. It allows developers to manage projects and tasks, track work time, and measure their productivity through analytics dashboards.
 
-The first implementation stage focuses on the FastAPI backend in `apps/api`.
-Frontend applications and broader automation can be added under `apps/` in later
-stages.
+## What is DevFlow Insight?
 
-## Layout
+A developer can log in and:
+- Create projects and organize work in teams (organizations)
+- Manage tasks: status, priority, time estimates
+- Track time spent on tasks (start/stop timer)
+- View productivity dashboards: velocity, completion rate, estimation accuracy, activity streaks
+- Optionally: connect a GitHub account and sync PRs/issues as tasks
 
-- `apps/` - deployable applications.
-- `docs/` - product, architecture, and operating documentation.
-- `infra/` - local infrastructure and deployment foundations.
+## Roadmap
 
-## Backend
+### Stage 1 — Backend API (current stage)
 
-The API service lives in `apps/api` and exposes versioned routes under `/api/v1`
-plus a root health probe at `/health`.
+Backend only (FastAPI REST API). No frontend yet.
+
+Domains to implement (in dependency order):
+1. **Auth** — registration, JWT login, token management
+2. **Organizations** — workspace/team management with roles
+3. **Projects** — developer projects (router: `/repositories`)
+4. **Tasks + Time Tracking** — tasks with timer (router: `/pull-requests`)
+5. **Metrics** — productivity metrics and dashboards
+6. **Reports** — data export (JSON → CSV/PDF)
+7. **GitHub Integration** — optional GitHub sync
+
+### Stage 2 — Frontend (planned)
+
+React + TypeScript + Vite application in `apps/web/`. Views:
+- Login and registration screens
+- Developer metrics dashboard
+- Project and task list (Kanban/List view)
+- Work time tracker
+- Reports and export view
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  CLIENTS (Stage 2)                   │
+│         React App (apps/web)  |  Swagger UI          │
+└─────────────────┬───────────────────────────────────┘
+                  │ HTTP/REST
+┌─────────────────▼───────────────────────────────────┐
+│              FastAPI Backend (apps/api)               │
+│                                                      │
+│  /api/v1/auth          /api/v1/organizations         │
+│  /api/v1/projects      /api/v1/tasks                 │
+│  /api/v1/metrics       /api/v1/reports               │
+│  /api/v1/integrations/github                         │
+│                                                      │
+│  Core: config | database | security | errors         │
+│  Layers: routes → services → repositories → models   │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│              PostgreSQL 18.3                          │
+│   users | organizations | projects | tasks           │
+│   work_sessions | reports | github_connections       │
+└─────────────────────────────────────────────────────┘
+```
+
+## Monorepo Layout
+
+```
+devflow/
+├── apps/
+│   └── api/                # FastAPI backend (Stage 1)
+│       ├── src/devflow_api/
+│       │   ├── api/v1/     # Route handlers per domain
+│       │   └── core/       # Config, DB, models, services
+│       ├── tests/
+│       ├── migrations/     # Alembic migrations
+│       └── README.md       # Full API spec
+├── docs/
+│   └── product/
+│       └── README.md       # Product requirements and user stories
+├── infra/
+│   ├── docker-compose.yml  # API + PostgreSQL + Redis
+│   └── README.md           # Infrastructure guide
+└── README.md               # This file
+```
+
+## Quick Start
+
+Requirements: Docker, Docker Compose.
+
+```powershell
+# 1. Copy environment config
+cp apps/api/.env.example apps/api/.env
+
+# 2. Start the stack
+docker compose -f infra/docker-compose.yml up -d
+
+# 3. Run database migrations
+docker compose -f infra/docker-compose.yml exec api uv run alembic upgrade head
+
+# 4. Verify it's running
+curl http://localhost:8000/health
+```
+
+API is available at `http://localhost:8000`. Interactive Swagger docs: `http://localhost:8000/docs`.
+
+## Documentation
+
+- [Backend API](apps/api/README.md) — endpoint spec, data models, development guide
+- [Product Requirements](docs/product/README.md) — user stories, metrics, vision
+- [Infrastructure](infra/README.md) — Docker, CI/CD, deployment

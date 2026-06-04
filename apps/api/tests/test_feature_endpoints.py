@@ -4,7 +4,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 PLANNED_FEATURES = [
-    ("/api/v1/auth", "auth"),
     ("/api/v1/organizations", "organizations"),
     ("/api/v1/repositories", "repositories"),
     ("/api/v1/pull-requests", "pull_requests"),

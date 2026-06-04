@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+asyncpg://devflow:devflow@localhost:5432/devflow"
     cors_origins: list[AnyUrl] = Field(default_factory=list)
+    secret_key: str = "changeme-dev-only-use-random-32-chars-in-prod"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 30
 
 
 @lru_cache
