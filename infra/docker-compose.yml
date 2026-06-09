@@ -6,12 +6,25 @@ services:
       DEVFLOW_API_ENVIRONMENT: local
       DEVFLOW_API_DEBUG: "true"
       DEVFLOW_API_DATABASE_URL: postgresql+asyncpg://devflow:devflow@postgres:5432/devflow
+      DEVFLOW_API_REDIS_URL: redis://redis:6379/0
       DEVFLOW_API_CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   postgres:
     image: postgres:18.3

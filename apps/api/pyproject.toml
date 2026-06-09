@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn[standard]>=0.34",
     "httpx>=0.28.1",
     "cryptography>=48.0.0",
+    "redis>=5.0",
 ]
 
 [dependency-groups]
@@ -73,3 +74,4 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
+asyncio_mode = "auto"
