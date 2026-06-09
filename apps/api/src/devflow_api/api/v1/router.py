@@ -24,9 +24,7 @@ api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(
     organizations_router, prefix="/organizations", tags=["organizations"]
 )
-api_router.include_router(
-    repositories_router, prefix="/repositories", tags=["repositories"]
-)
+api_router.include_router(repositories_router, prefix="/projects", tags=["projects"])
 api_router.include_router(
     pull_requests_router, prefix="/pull-requests", tags=["pull-requests"]
 )
