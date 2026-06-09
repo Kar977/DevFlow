@@ -63,6 +63,16 @@ class TaskRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_by_github_pr_url(
+        self, *, project_id: uuid.UUID, github_pr_url: str
+    ) -> Task | None:
+        stmt = select(Task).where(
+            Task.project_id == project_id,
+            Task.github_pr_url == github_pr_url,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def update(
         self,
         task: Task,
