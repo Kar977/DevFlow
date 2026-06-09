@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Shared secret used to verify GitHub webhook HMAC-SHA256 signatures
     github_webhook_secret: str = ""
 
+    # Redis cache for metrics endpoints (empty = use in-memory cache)
+    redis_url: str = ""
+    metrics_cache_ttl_seconds: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:
