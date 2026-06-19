@@ -1,4 +1,9 @@
 import "@testing-library/jest-dom";
+import { server } from "./__tests__/mocks/server";
+
+beforeAll(() => server.listen({ onUnhandledRequest: "bypass" }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
 
 // Provide a localStorage stub for test environments where jsdom's localStorage
 // is not available (e.g. when running under Node without a localstorage-file).

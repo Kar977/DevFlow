@@ -17,6 +17,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    environmentMatchGlobs: [
+      // Run Axios client interceptor tests in node so MSW http-interceptors work
+      ["src/__tests__/client.test.ts", "node"],
+    ],
     setupFiles: ["./src/test-setup.ts"],
     coverage: {
       provider: "v8",
