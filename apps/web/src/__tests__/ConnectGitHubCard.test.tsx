@@ -61,4 +61,19 @@ describe("ConnectGitHubCard", () => {
     await userEvent.click(screen.getByRole("button", { name: /rozłącz/i }));
     expect(onDisconnect).toHaveBeenCalledOnce();
   });
+
+  it("shows avatar img when github_avatar_url is provided", () => {
+    render(
+      <ConnectGitHubCard
+        status={{ connected: true, github_login: "octocat", github_avatar_url: "https://example.com/avatar.png" }}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        isConnecting={false}
+        isDisconnecting={false}
+      />
+    );
+    const img = screen.getByRole("img", { name: /github avatar/i });
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute("src", "https://example.com/avatar.png");
+  });
 });

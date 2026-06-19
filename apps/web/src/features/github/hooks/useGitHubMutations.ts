@@ -32,5 +32,8 @@ export function useGitHubMutations() {
     isSyncing: sync.isPending,
     isAuthorizing: authorize.isPending,
     isDisconnecting: disconnect.isPending,
+    authorizeError: authorize.error,
+    disconnectError: disconnect.error,
+    syncError: sync.error,
   };
 }
