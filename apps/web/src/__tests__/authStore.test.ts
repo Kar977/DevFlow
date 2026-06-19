@@ -44,4 +44,11 @@ describe("useAuthStore", () => {
     expect(useAuthStore.getState().accessToken).toBe("new-access");
     expect(useAuthStore.getState().refreshToken).toBe("refresh-456");
   });
+
+  it("setUser updates user", () => {
+    useAuthStore.getState().login("access-123", "refresh-456", mockUser);
+    const updated = { ...mockUser, full_name: "Updated User" };
+    useAuthStore.getState().setUser(updated);
+    expect(useAuthStore.getState().user?.full_name).toBe("Updated User");
+  });
 });

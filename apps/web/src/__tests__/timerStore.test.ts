@@ -3,7 +3,8 @@ import { useTimerStore } from "@/shared/store/timerStore";
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useTimerStore.setState({ activeSession: null, elapsedSeconds: 0, _intervalId: null });
+  useTimerStore.getState().stopSession(); // clears private _intervalId too
+  useTimerStore.setState({ activeSession: null, elapsedSeconds: 0 });
 });
 
 afterEach(() => {

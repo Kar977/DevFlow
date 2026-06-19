@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useOrgStore } from "@/shared/store/orgStore";
 
 beforeEach(() => {
+  localStorage.clear();
   useOrgStore.setState({ activeOrgId: null });
 });
 
