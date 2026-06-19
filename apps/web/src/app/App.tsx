@@ -1,3 +1,5 @@
+import { Providers } from "./providers";
+
 export function App() {
-  return <div>DevFlow Insight — loading...</div>;
+  return <Providers />;
 }

@@ -1,0 +1,26 @@
+import { create } from "zustand";
+import type { User } from "@/shared/types";
+
+type AuthState = {
+  accessToken: string | null;
+  refreshToken: string | null;
+  user: User | null;
+};
+
+type AuthActions = {
+  login: (accessToken: string, refreshToken: string, user: User) => void;
+  logout: () => void;
+  setToken: (accessToken: string) => void;
+  setUser: (user: User) => void;
+};
+
+export const useAuthStore = create<AuthState & AuthActions>((set) => ({
+  accessToken: null,
+  refreshToken: null,
+  user: null,
+  login: (accessToken, refreshToken, user) =>
+    set({ accessToken, refreshToken, user }),
+  logout: () => set({ accessToken: null, refreshToken: null, user: null }),
+  setToken: (accessToken) => set({ accessToken }),
+  setUser: (user) => set({ user }),
+}));
