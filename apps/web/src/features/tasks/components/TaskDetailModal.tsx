@@ -4,9 +4,26 @@ import { z } from "zod";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/shared/ui";
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 import { useUpdateTask, useDeleteTask } from "@/features/tasks/hooks/useTaskMutations";
+
+const STATUS_OPTIONS = [
+  { value: "backlog", label: "Backlog" },
+  { value: "todo", label: "To Do" },
+  { value: "in_progress", label: "W toku" },
+  { value: "review", label: "Review" },
+  { value: "done", label: "Ukończone" },
+  { value: "cancelled", label: "Anulowane" },
+] as const;
+
+const PRIORITY_OPTIONS = [
+  { value: "low", label: "Niski" },
+  { value: "medium", label: "Średni" },
+  { value: "high", label: "Wysoki" },
+  { value: "critical", label: "Krytyczny" },
+] as const;
 
 const UpdateSchema = z.object({
   title: z.string().min(1, "Tytuł jest wymagany"),
@@ -26,7 +43,7 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
 
-  const { register, handleSubmit, formState: { errors } } = useForm<UpdateData>({
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<UpdateData>({
     resolver: zodResolver(UpdateSchema),
     defaultValues: {
       title: task.title,
@@ -35,6 +52,9 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
       priority: task.priority,
     },
   });
+
+  const currentStatus = watch("status");
+  const currentPriority = watch("priority");
 
   function onSubmit(data: UpdateData) {
     updateTask.mutate({ taskId: task.id, data }, { onSuccess: onClose });
@@ -54,15 +74,55 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="title">Tytuł</Label>
-            <Input id="title" {...register("title")} aria-invalid={!!errors.title} />
+            <Label htmlFor="modal-title">Tytuł</Label>
+            <Input id="modal-title" {...register("title")} aria-invalid={!!errors.title} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>
+
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="description">Opis</Label>
-            <Input id="description" {...register("description")} />
+            <Label htmlFor="modal-description">Opis</Label>
+            <textarea
+              id="modal-description"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              {...register("description")}
+            />
           </div>
-          <DialogFooter className="flex justify-between">
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label>Status</Label>
+              <Select value={currentStatus} onValueChange={(v) => setValue("status", v as UpdateData["status"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>Priorytet</Label>
+              <Select value={currentPriority} onValueChange={(v) => setValue("priority", v as UpdateData["priority"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleteTask.isPending}>
               Usuń
             </Button>
