@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/shared/api/client";
 
 export interface Report {
@@ -28,7 +28,6 @@ export function useReportsQuery() {
 }
 
 export function useReportPolling(reportId: string | null) {
-  const qc = useQueryClient();
   return useQuery({
     queryKey: reportQueryKeys.detail(reportId ?? ""),
     queryFn: () =>
@@ -37,7 +36,6 @@ export function useReportPolling(reportId: string | null) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (data && (data.status === "ready" || data.status === "failed")) {
-        void qc.invalidateQueries({ queryKey: reportQueryKeys.list() });
         return false;
       }
       return 3000;

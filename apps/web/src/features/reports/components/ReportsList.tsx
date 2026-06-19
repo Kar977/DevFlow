@@ -39,7 +39,7 @@ export function ReportsList({ reports }: Props) {
               variant="ghost"
               size="sm"
               onClick={() => deleteReport.mutate(report.id)}
-              disabled={deleteReport.isPending}
+              disabled={deleteReport.isPending && deleteReport.variables === report.id}
               className="text-destructive hover:text-destructive"
             >
               Usuń
