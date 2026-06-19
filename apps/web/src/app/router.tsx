@@ -25,7 +25,7 @@ const ProfilePage = lazy(() =>
   import("@/features/auth/pages/ProfilePage").then((m) => ({ default: m.ProfilePage }))
 );
 
-function ProtectedRoute() {
+export function ProtectedRoute() {
   const token = useAuthStore((s) => s.accessToken);
   if (!token) return <Navigate to="/login" replace />;
   return (
