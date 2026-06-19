@@ -7,7 +7,7 @@ export function ProfilePage() {
   const user = useAuthStore((s) => s.user);
   const mutation = useProfileMutation();
 
-  if (!user) return null;
+  if (!user) return <p className="text-muted-foreground">Ładowanie...</p>;
 
   return (
     <div className="space-y-4">
@@ -23,6 +23,7 @@ export function ProfilePage() {
           </div>
           <ProfileForm
             initialName={user.full_name ?? ""}
+            initialAvatarUrl={user.avatar_url ?? ""}
             onSubmit={(data) => mutation.mutate(data)}
             isPending={mutation.isPending}
           />

@@ -5,7 +5,7 @@ import { Button, Input, Label } from "@/shared/ui";
 
 const ProfileSchema = z.object({
   full_name: z.string().min(2, "Imię musi mieć co najmniej 2 znaki"),
-  avatar_url: z.string().url("Nieprawidłowy URL").optional().or(z.literal("")),
+  avatar_url: z.union([z.literal(""), z.string().url("Nieprawidłowy URL")]).optional(),
 });
 type ProfileFormData = z.infer<typeof ProfileSchema>;
 
