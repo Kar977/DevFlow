@@ -24,6 +24,9 @@ const GitHubIntegrationPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import("@/features/auth/pages/ProfilePage").then((m) => ({ default: m.ProfilePage }))
 );
+const ProjectDetailPage = lazy(() =>
+  import("@/features/projects/pages/ProjectDetailPage").then((m) => ({ default: m.ProjectDetailPage }))
+);
 
 export function ProtectedRoute() {
   const token = useAuthStore((s) => s.accessToken);
@@ -48,6 +51,7 @@ export const router = createBrowserRouter([
       { path: "dashboard", element: <DashboardPage /> },
       { path: "tasks", element: <TaskListPage /> },
       { path: "projects", element: <ProjectListPage /> },
+      { path: "projects/:projectId", element: <ProjectDetailPage /> },
       { path: "metrics", element: <MetricsDashboardPage /> },
       { path: "reports", element: <ReportListPage /> },
       { path: "settings/github", element: <GitHubIntegrationPage /> },
