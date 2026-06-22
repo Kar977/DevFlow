@@ -31,3 +31,7 @@ Thumbs.db
 postgres-data/
 .local_docs/
 *.exe.stackdump
+
+# Superpowers (lokalne artefakty narzędziowe — nie wersjonować)
+.superpowers/
+docs/superpowers/
