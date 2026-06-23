@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from devflow_api.core.models.organization_member import OrganizationMember
+from devflow_api.core.models.project import Project
 from devflow_api.core.models.report import Report
 from devflow_api.core.models.task import Task
 from devflow_api.core.models.work_session import WorkSession
@@ -121,6 +123,51 @@ def make_fake_generator(report_repo: FakeReportRepository) -> Any:
             )
 
     return _fake_generator
+
+
+# ---------------------------------------------------------------------------
+# Fake project / org repos (for project_status auth tests)
+# ---------------------------------------------------------------------------
+
+
+class FakeProjectRepository:
+    def __init__(self) -> None:
+        self._projects: dict[uuid.UUID, Project] = {}
+
+    async def get_by_id(self, project_id: uuid.UUID) -> Project | None:
+        return self._projects.get(project_id)
+
+    def seed(self, *, project_id: uuid.UUID, org_id: uuid.UUID) -> None:
+        self._projects[project_id] = Project(
+            id=project_id,
+            org_id=org_id,
+            name="P",
+            description=None,
+            status="active",
+            github_repo_url=None,
+            created_by=uuid.uuid4(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+
+class FakeOrgRepository:
+    def __init__(self) -> None:
+        self._members: dict[tuple[uuid.UUID, uuid.UUID], OrganizationMember] = {}
+
+    async def get_member(
+        self, org_id: uuid.UUID, user_id: uuid.UUID
+    ) -> OrganizationMember | None:
+        return self._members.get((org_id, user_id))
+
+    def seed(self, org_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        self._members[(org_id, user_id)] = OrganizationMember(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            user_id=user_id,
+            role="member",
+            joined_at=datetime.now(UTC),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -417,3 +464,105 @@ def test_generate_payload_weekly_summary_shape() -> None:
     assert "avg_hours_per_day" in payload
     assert payload["tasks_completed"] == 1
     assert payload["total_work_hours"] == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Tests — project_status synchronous authorisation (TM-007)
+# ---------------------------------------------------------------------------
+
+
+def _make_report_service_with_auth(
+    report_repo: FakeReportRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrgRepository,
+) -> ReportService:
+    return ReportService(
+        report_repo=report_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+    )
+
+
+def test_create_project_status_nonexistent_project_returns_404(
+    user_id: uuid.UUID,
+    report_repo: FakeReportRepository,
+) -> None:
+    """project_status report for an unknown project_id must return 404 immediately."""
+    project_repo = FakeProjectRepository()  # empty — no projects seeded
+    org_repo = FakeOrgRepository()
+    service = _make_report_service_with_auth(report_repo, project_repo, org_repo)
+
+    app = create_app()
+    app.dependency_overrides[get_report_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    app.dependency_overrides[get_report_generator] = lambda: make_fake_generator(
+        report_repo
+    )
+    with TestClient(app) as c:
+        response = c.post(
+            "/api/v1/reports",
+            json={"type": "project_status", "project_id": str(uuid.uuid4())},
+        )
+    assert response.status_code == 404
+
+
+def test_create_project_status_non_member_returns_403(
+    user_id: uuid.UUID,
+    report_repo: FakeReportRepository,
+) -> None:
+    """project_status report for a project the user is NOT a member of returns 403."""
+    project_id = uuid.uuid4()
+    org_id = uuid.uuid4()
+    project_repo = FakeProjectRepository()
+    project_repo.seed(project_id=project_id, org_id=org_id)
+    org_repo = FakeOrgRepository()
+    # user_id is NOT seeded into org_repo → no membership
+
+    service = _make_report_service_with_auth(report_repo, project_repo, org_repo)
+
+    app = create_app()
+    app.dependency_overrides[get_report_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    app.dependency_overrides[get_report_generator] = lambda: make_fake_generator(
+        report_repo
+    )
+    with TestClient(app) as c:
+        response = c.post(
+            "/api/v1/reports",
+            json={"type": "project_status", "project_id": str(project_id)},
+        )
+    assert response.status_code == 403
+
+
+def test_create_project_status_as_member_returns_202(
+    user_id: uuid.UUID,
+    report_repo: FakeReportRepository,
+) -> None:
+    """project_status report for an accessible project returns 202."""
+    project_id = uuid.uuid4()
+    org_id = uuid.uuid4()
+    project_repo = FakeProjectRepository()
+    project_repo.seed(project_id=project_id, org_id=org_id)
+    org_repo = FakeOrgRepository()
+    org_repo.seed(org_id, user_id)  # user IS a member
+
+    service = _make_report_service_with_auth(report_repo, project_repo, org_repo)
+
+    app = create_app()
+    app.dependency_overrides[get_report_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    app.dependency_overrides[get_report_generator] = lambda: make_fake_generator(
+        report_repo
+    )
+    with TestClient(app) as c:
+        response = c.post(
+            "/api/v1/reports",
+            json={"type": "project_status", "project_id": str(project_id)},
+        )
+    assert response.status_code == 202

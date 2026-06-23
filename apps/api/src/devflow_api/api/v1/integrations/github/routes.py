@@ -38,10 +38,13 @@ async def authorize(
 )
 async def callback(
     code: str = Query(...),
+    state: str = Query(...),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: GitHubSyncService = Depends(get_github_sync_service),
 ) -> GitHubConnectionResponse:
-    conn = await service.handle_callback(user_id=subject.user_id, code=code)
+    conn = await service.handle_callback(
+        user_id=subject.user_id, code=code, state=state
+    )
     return GitHubConnectionResponse.model_validate(conn)
 
 
@@ -85,6 +88,9 @@ async def sync(
     return await service.sync(user_id=subject.user_id, project_id=project_id)
 
 
+_WEBHOOK_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB
+
+
 @router.post(
     "/webhooks",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -95,10 +101,29 @@ async def webhooks(
     x_hub_signature_256: str = Header(default=""),
     service: GitHubSyncService = Depends(get_github_sync_service),
 ) -> None:
+    # Reject oversized payloads before reading body to limit resource consumption.
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _WEBHOOK_MAX_BODY_BYTES:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Webhook payload exceeds the maximum allowed size.",
+        )
+
     raw_body = await request.body()
-    payload: dict[str, object] = await request.json()
+
+    # Secondary size guard for chunked transfers without Content-Length.
+    if len(raw_body) > _WEBHOOK_MAX_BODY_BYTES:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Webhook payload exceeds the maximum allowed size.",
+        )
+
+    # HMAC signature is verified *inside* handle_webhook before JSON parsing.
     await service.handle_webhook(
-        payload=payload,
         signature=x_hub_signature_256,
         raw_body=raw_body,
     )

@@ -18,6 +18,7 @@ from devflow_api.core.integrations.github.crypto import TokenCipher
 from devflow_api.core.integrations.github.oauth import (
     OAuthTokenResult,
     build_authorize_url,
+    create_oauth_state,
 )
 from devflow_api.core.integrations.github.sync import issue_to_task_fields
 from devflow_api.core.integrations.github.webhooks import verify_signature
@@ -31,6 +32,9 @@ from devflow_api.core.services.github_sync import (
     get_github_sync_service,
 )
 from devflow_api.main import create_app
+
+# Secret key used in fixtures that exercise OAuth state generation/verification.
+_TEST_SECRET_KEY = "test-secret-key-that-is-long-enough-for-prod"
 
 FERNET_KEY = Fernet.generate_key().decode()
 WEBHOOK_SECRET = "test-webhook-secret"  # noqa: S105
@@ -82,11 +86,15 @@ def test_verify_signature_rejects_bad_prefix() -> None:
 
 def test_build_authorize_url_contains_params() -> None:
     url = build_authorize_url(
-        client_id="cid", redirect_uri="http://cb", state="user:nonce"
+        client_id="cid",
+        redirect_uri="http://cb",
+        state="user:nonce",
+        scopes="read:user",
     )
     assert "github.com/login/oauth/authorize" in url
     assert "client_id=cid" in url
-    assert "state=user:nonce" in url
+    assert "state=user%3Anonce" in url  # URL-encoded via urlencode
+    assert "scope=read%3Auser" in url
 
 
 def test_issue_to_task_fields_maps_html_url() -> None:
@@ -322,19 +330,26 @@ def make_service(
 
 
 @pytest.fixture()
+def test_settings() -> Settings:
+    return Settings(
+        github_webhook_secret=WEBHOOK_SECRET,
+        github_token_encryption_key=FERNET_KEY,
+        github_client_id="cid",
+        secret_key=_TEST_SECRET_KEY,
+    )
+
+
+@pytest.fixture()
 def client(
     user_id: uuid.UUID,
     api_client: FakeApiClient,
     make_service: ServiceFactory,
+    test_settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
-    # use a configured Settings (webhook secret + encryption key) inside the service
-    settings = Settings(
-        github_webhook_secret=WEBHOOK_SECRET,
-        github_token_encryption_key=FERNET_KEY,
-        github_client_id="cid",
-    )
-    monkeypatch.setattr(github_sync_module, "get_settings", lambda: settings)
+    # Monkeypatch get_settings in the github_sync module so the service uses
+    # our known test secret key for OAuth state signing/verification.
+    monkeypatch.setattr(github_sync_module, "get_settings", lambda: test_settings)
 
     service = make_service(api_client)
     app = create_app()
@@ -358,17 +373,52 @@ def test_authorize_returns_url(client: TestClient) -> None:
 
 
 def test_callback_creates_connection(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient,
+    user_id: uuid.UUID,
+    test_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_exchange(**kwargs: Any) -> OAuthTokenResult:
         return OAuthTokenResult(access_token="gho_abc", scopes="repo")
 
     monkeypatch.setattr(github_sync_module, "exchange_code_for_token", fake_exchange)
-    response = client.get("/api/v1/integrations/github/callback?code=xyz")
+
+    valid_state = create_oauth_state(user_id, secret_key=test_settings.secret_key)
+    response = client.get(
+        f"/api/v1/integrations/github/callback?code=xyz&state={valid_state}"
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["github_login"] == "octocat"
     assert "access_token" not in body  # token never exposed
+
+
+def test_callback_rejects_missing_state(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Callback without `state` param must be rejected (422 missing required param)."""
+
+    async def fake_exchange(**kwargs: Any) -> OAuthTokenResult:
+        return OAuthTokenResult(access_token="gho_abc", scopes="repo")
+
+    monkeypatch.setattr(github_sync_module, "exchange_code_for_token", fake_exchange)
+    response = client.get("/api/v1/integrations/github/callback?code=xyz")
+    assert response.status_code == 422  # state is required Query(...)
+
+
+def test_callback_rejects_invalid_state(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Callback with a tampered or wrong-user state must be rejected (401)."""
+
+    async def fake_exchange(**kwargs: Any) -> OAuthTokenResult:
+        return OAuthTokenResult(access_token="gho_abc", scopes="repo")
+
+    monkeypatch.setattr(github_sync_module, "exchange_code_for_token", fake_exchange)
+    response = client.get(
+        "/api/v1/integrations/github/callback?code=xyz&state=tampered:invalid:state:0000"
+    )
+    assert response.status_code == 401
 
 
 def test_status_when_not_connected_returns_null(client: TestClient) -> None:
@@ -560,3 +610,19 @@ def test_webhook_invalid_signature_returns_401(client: TestClient) -> None:
         },
     )
     assert response.status_code == 401
+
+
+def test_webhook_oversized_body_returns_413(client: TestClient) -> None:
+    """Webhook payloads exceeding 1 MiB must be rejected before HMAC processing."""
+    # 1 MiB + 1 byte triggers the Content-Length guard.
+    large_body = b"x" * (1 * 1024 * 1024 + 1)
+    response = client.post(
+        "/api/v1/integrations/github/webhooks",
+        content=large_body,
+        headers={
+            "X-Hub-Signature-256": "sha256=" + "0" * 64,
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(large_body)),
+        },
+    )
+    assert response.status_code == 413

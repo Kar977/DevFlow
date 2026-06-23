@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
+from devflow_api.core.models.project import Project
 from devflow_api.core.models.task import Task
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.repositories.organization import OrganizationRepository
@@ -31,7 +32,7 @@ class TaskService:
 
     async def _require_project_access(
         self, *, project_id: uuid.UUID, user_id: uuid.UUID
-    ) -> None:
+    ) -> Project:
         project = await self._project_repo.get_by_id(project_id)
         if not project:
             raise AppError(
@@ -46,10 +47,12 @@ class TaskService:
                 message="You are not a member of this project's organization.",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
+        return project
 
     async def _get_accessible_task(
         self, *, task_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Task:
+    ) -> tuple[Task, Project]:
+        """Return (task, project) after verifying the caller has project access."""
         task = await self._task_repo.get_by_id(task_id)
         if not task:
             raise AppError(
@@ -57,8 +60,24 @@ class TaskService:
                 message="Task not found.",
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        await self._require_project_access(project_id=task.project_id, user_id=user_id)
-        return task
+        project = await self._require_project_access(
+            project_id=task.project_id, user_id=user_id
+        )
+        return task, project
+
+    async def _validate_assignee(
+        self, *, assignee_id: uuid.UUID | None, org_id: uuid.UUID
+    ) -> None:
+        """Raise 422 when assignee_id is set but is not an org member."""
+        if assignee_id is None:
+            return
+        member = await self._org_repo.get_member(org_id, assignee_id)
+        if not member:
+            raise AppError(
+                code="invalid_assignee",
+                message="Assignee must be a member of the project's organization.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
 
     async def create_task(
         self,
@@ -73,7 +92,10 @@ class TaskService:
         due_date: datetime | None = None,
         github_pr_url: str | None = None,
     ) -> Task:
-        await self._require_project_access(project_id=project_id, user_id=user_id)
+        project = await self._require_project_access(
+            project_id=project_id, user_id=user_id
+        )
+        await self._validate_assignee(assignee_id=assignee_id, org_id=project.org_id)
         return await self._task_repo.create(
             project_id=project_id,
             title=title,
@@ -87,7 +109,10 @@ class TaskService:
         )
 
     async def get_task(self, *, task_id: uuid.UUID, user_id: uuid.UUID) -> Task:
-        return await self._get_accessible_task(task_id=task_id, user_id=user_id)
+        task, _project = await self._get_accessible_task(
+            task_id=task_id, user_id=user_id
+        )
+        return task
 
     async def list_tasks(
         self,
@@ -122,7 +147,10 @@ class TaskService:
         due_date: datetime | None = None,
         github_pr_url: str | None = None,
     ) -> Task:
-        task = await self._get_accessible_task(task_id=task_id, user_id=user_id)
+        task, project = await self._get_accessible_task(
+            task_id=task_id, user_id=user_id
+        )
+        await self._validate_assignee(assignee_id=assignee_id, org_id=project.org_id)
         return await self._task_repo.update(
             task,
             title=title,
@@ -136,7 +164,9 @@ class TaskService:
         )
 
     async def delete_task(self, *, task_id: uuid.UUID, user_id: uuid.UUID) -> None:
-        task = await self._get_accessible_task(task_id=task_id, user_id=user_id)
+        task, _project = await self._get_accessible_task(
+            task_id=task_id, user_id=user_id
+        )
         await self._task_repo.delete(task)
 
     async def start_session(

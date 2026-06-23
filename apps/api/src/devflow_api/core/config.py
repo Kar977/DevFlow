@@ -3,8 +3,12 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyUrl, Field
+from pydantic import AnyUrl, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SECRET_KEY = "changeme-dev-only-use-random-32-chars-in-prod"
+_MIN_SECRET_KEY_LEN = 32
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 
 class Settings(BaseSettings):
@@ -22,16 +26,22 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+asyncpg://devflow:devflow@localhost:5432/devflow"
     cors_origins: list[AnyUrl] = Field(default_factory=list)
-    secret_key: str = "changeme-dev-only-use-random-32-chars-in-prod"
+    secret_key: str = _DEFAULT_SECRET_KEY
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 30
+
+    # Allowed hosts for TrustedHostMiddleware (empty = no enforcement)
+    allowed_hosts: list[str] = Field(default_factory=list)
 
     # GitHub OAuth App
     github_client_id: str = ""
     github_client_secret: str = ""
-    github_redirect_uri: str = (
-        "http://localhost:8000/api/v1/integrations/github/callback"
-    )
+    github_redirect_uri: str = "http://localhost:3000/integrations/github/callback"
+
+    # OAuth scope — minimal by default. Set to "read:user,repo" when
+    # private-repository issue sync is required.
+    # Example: DEVFLOW_API_GITHUB_OAUTH_SCOPES="read:user,repo"
+    github_oauth_scopes: str = "read:user"
 
     # Fernet key for encrypting GitHub access tokens at rest. Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"  # noqa: E501
@@ -43,6 +53,67 @@ class Settings(BaseSettings):
     # Redis cache for metrics endpoints (empty = use in-memory cache)
     redis_url: str = ""
     metrics_cache_ttl_seconds: int = 60
+
+    @model_validator(mode="after")
+    def _validate_production_settings(self) -> Settings:
+        """Refuse to start in production with unsafe / default configuration."""
+        if self.environment != "production":
+            return self
+
+        errors: list[str] = []
+
+        if self.debug:
+            errors.append("debug must be False in production")
+
+        if (
+            self.secret_key == _DEFAULT_SECRET_KEY
+            or len(self.secret_key) < _MIN_SECRET_KEY_LEN
+        ):
+            errors.append(
+                f"secret_key must be at least {_MIN_SECRET_KEY_LEN} characters "
+                "and must not be the default value"
+            )
+
+        # GitHub integration secrets — required when OAuth is enabled
+        if self.github_client_id:
+            if not self.github_client_secret:
+                errors.append(
+                    "github_client_secret is required when github_client_id is set"
+                )
+            if not self.github_token_encryption_key:
+                errors.append(
+                    "github_token_encryption_key is required "
+                    "when github_client_id is set"
+                )
+
+        # Localhost in CORS origins signals a local-only configuration
+        for origin in self.cors_origins:
+            host = str(origin)
+            if any(local in host for local in _LOCAL_HOSTS):
+                errors.append(
+                    f"cors_origins must not contain local addresses in production "
+                    f"(found: {host})"
+                )
+
+        # TrustedHostMiddleware should be configured in production
+        if not self.allowed_hosts:
+            errors.append(
+                "allowed_hosts must be set in production to prevent host-header attacks"
+            )
+        else:
+            for h in self.allowed_hosts:
+                if h in ("*", ""):
+                    errors.append(
+                        "allowed_hosts must not contain wildcard '*' in production"
+                    )
+
+        if errors:
+            bullet_list = "\n  - ".join(errors)
+            raise ValueError(
+                f"Unsafe configuration for environment='production':\n  - {bullet_list}"
+            )
+
+        return self
 
 
 @lru_cache

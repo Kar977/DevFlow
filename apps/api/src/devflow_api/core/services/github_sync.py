@@ -1,6 +1,6 @@
 """GitHubSyncService — OAuth connection, sync, and webhook handling."""
 
-import secrets
+import json
 import uuid
 
 from fastapi import Depends, status
@@ -13,7 +13,9 @@ from devflow_api.core.integrations.github.client import GitHubApiClient
 from devflow_api.core.integrations.github.crypto import TokenCipher
 from devflow_api.core.integrations.github.oauth import (
     build_authorize_url,
+    create_oauth_state,
     exchange_code_for_token,
+    verify_oauth_state,
 )
 from devflow_api.core.integrations.github.sync import issue_to_task_fields
 from devflow_api.core.integrations.github.webhooks import verify_signature
@@ -63,20 +65,31 @@ class GitHubSyncService:
             )
 
     def authorize_url(self, *, user_id: uuid.UUID) -> str:
-        """Return the GitHub OAuth authorization URL with a CSRF-safe state."""
+        """Return the GitHub OAuth authorization URL with a signed CSRF state token."""
         settings = get_settings()
-        # state encodes user_id + random nonce so callback can be validated
-        state = f"{user_id}:{secrets.token_urlsafe(16)}"
+        state = create_oauth_state(user_id, secret_key=settings.secret_key)
         return build_authorize_url(
             client_id=settings.github_client_id,
             redirect_uri=settings.github_redirect_uri,
             state=state,
+            scopes=settings.github_oauth_scopes,
         )
 
     async def handle_callback(
-        self, *, user_id: uuid.UUID, code: str
+        self, *, user_id: uuid.UUID, code: str, state: str
     ) -> GitHubConnection:
         settings = get_settings()
+        try:
+            verify_oauth_state(state, user_id, secret_key=settings.secret_key)
+        except ValueError as exc:
+            raise AppError(
+                code="invalid_oauth_state",
+                message=(
+                    "OAuth state is invalid or expired. "
+                    "Please restart the GitHub authorization flow."
+                ),
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ) from exc
         token_result = await exchange_code_for_token(
             client_id=settings.github_client_id,
             client_secret=settings.github_client_secret,
@@ -163,10 +176,14 @@ class GitHubSyncService:
     async def handle_webhook(
         self,
         *,
-        payload: dict[str, object],
         signature: str,
         raw_body: bytes,
     ) -> None:
+        """Verify HMAC signature first, then parse and process the webhook payload.
+
+        JSON is intentionally parsed *after* signature verification so that
+        untrusted input is never deserialised before authentication.
+        """
         settings = get_settings()
         if not settings.github_webhook_secret:
             raise AppError(
@@ -186,6 +203,9 @@ class GitHubSyncService:
                 message=str(exc),
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ) from exc
+
+        # Signature is valid — safe to parse JSON now.
+        _payload: dict[str, object] = json.loads(raw_body)
 
 
 def get_github_sync_service(
