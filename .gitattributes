@@ -1,0 +1,5 @@
+# Force LF line endings for files that must run inside Linux containers.
+apps/api/entrypoint.sh text eol=lf
+
+# Default: let git normalise everything else to LF in the repo
+*         text=auto

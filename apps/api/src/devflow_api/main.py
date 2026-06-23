@@ -1,8 +1,13 @@
 """FastAPI application factory and ASGI entrypoint."""
 
-from fastapi import FastAPI, Request, Response
+from collections.abc import MutableMapping
+from typing import Any
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from devflow_api.api.v1.router import api_router
 from devflow_api.core.config import Settings, get_settings
@@ -18,6 +23,34 @@ _SECURITY_HEADERS: dict[str, str] = {
     "Referrer-Policy": "no-referrer",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
 }
+
+
+class SecurityHeadersMiddleware:
+    """Pure-ASGI middleware that injects security headers into every HTTP response.
+
+    Using a pure ASGI middleware (instead of ``@app.middleware("http")`` /
+    ``BaseHTTPMiddleware``) ensures that FastAPI ``BackgroundTasks`` are not
+    dropped — ``BaseHTTPMiddleware`` creates a new ``Response`` wrapper in
+    ``call_next()`` that does not carry the original response's ``background``
+    attribute, silently discarding background tasks.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: MutableMapping[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for key, value in _SECURITY_HEADERS.items():
+                    headers[key] = value
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -50,13 +83,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
-    @app.middleware("http")
-    async def add_security_headers(request: Request, call_next: object) -> Response:
-        """Attach security headers to every response."""
-        response: Response = await call_next(request)  # type: ignore[operator]
-        for header, value in _SECURITY_HEADERS.items():
-            response.headers[header] = value
-        return response
+    # Pure-ASGI security-headers middleware — must be added AFTER CORS/TrustedHost
+    # so it sits outermost and sees all responses (including error responses).
+    app.add_middleware(SecurityHeadersMiddleware)
 
     register_exception_handlers(app)
     app.include_router(api_router, prefix=app_settings.api_v1_prefix)

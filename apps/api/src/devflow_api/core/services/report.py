@@ -3,11 +3,25 @@
 Reports are created immediately as ``status="pending"`` and then generated in a
 FastAPI BackgroundTask so the POST /reports endpoint can return 202 right away.
 
-The background generator (``run_report_generation``) opens its own DB session via
-``async_session_factory`` because the request-scoped session has already been
-committed and closed by the time the background task runs.
+### Transaction-ordering caveat
+
+In FastAPI 0.95+, generator dependencies (like ``get_session`` / ``session.begin()``)
+are entered into the *outer* ``AsyncExitStack`` (``request_stack``), which exits
+**after** ``response(scope, receive, send)`` — meaning after BackgroundTasks have
+already run.  So when ``run_report_generation`` is called by BackgroundTasks, the
+row created by the request handler has been *flushed* (visible within the same
+session via ``session.flush()``) but **not yet committed** (not yet visible to any
+other session).
+
+Fix: ``run_report_generation`` is a thin scheduler that immediately spawns the real
+work as a new ``asyncio.Task`` via ``asyncio.create_task``.  Because the new task is
+scheduled on the running event loop (not awaited inline), the event loop will start
+it only after the current execution frame — including the ``request_stack`` cleanup
+(``session.begin()`` commit) — has completed.  ``_do_generate_report`` therefore
+opens a fresh session and is guaranteed to find the committed row.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -187,16 +201,49 @@ async def run_report_generation(
     date_to: datetime | None,
     project_id: uuid.UUID | None,
 ) -> None:
-    """Generate a report in the background with its own DB session.
+    """Schedule real generation as an independent asyncio task and return.
 
-    Opens a fresh session (the request session is already closed by the time
-    BackgroundTasks run) and flips the report status to ``ready`` or ``failed``.
+    FastAPI BackgroundTasks run *before* the request-scoped session commits
+    (see module docstring).  By spawning the work as a new ``asyncio.Task``,
+    we defer execution until after the current ASGI frame — and therefore after
+    the ``session.begin()`` commit — so ``_do_generate_report`` is guaranteed to
+    find the committed row.
+    """
+    asyncio.create_task(
+        _do_generate_report(
+            report_id,
+            user_id=user_id,
+            report_type=report_type,
+            date_from=date_from,
+            date_to=date_to,
+            project_id=project_id,
+        )
+    )
+
+
+async def _do_generate_report(
+    report_id: uuid.UUID,
+    *,
+    user_id: uuid.UUID,
+    report_type: str,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    project_id: uuid.UUID | None,
+) -> None:
+    """Generate a report in a fresh DB session.
+
+    Called only from ``run_report_generation`` (as an asyncio.Task).
+    Opens its own session so it is fully decoupled from the request session and
+    is guaranteed to read committed data.
     """
     async with async_session_factory() as session:
         async with session.begin():
             report_repo = ReportRepository(session)
             report = await report_repo.get_by_id(report_id)
             if report is None:
+                logger.warning(
+                    "Report %s not found in DB — skipping generation", report_id
+                )
                 return
 
             await report_repo.update_status(report, status="generating")
