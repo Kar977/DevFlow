@@ -626,3 +626,71 @@ def test_webhook_oversized_body_returns_413(client: TestClient) -> None:
         },
     )
     assert response.status_code == 413
+
+
+def test_status_works_without_encryption_key(
+    user_id: uuid.UUID,
+    conn_repo: FakeConnRepo,
+    task_repo: FakeTaskRepo,
+    project_repo: FakeProjectRepo,
+    org_repo: FakeOrgRepo,
+) -> None:
+    """GET /status must return 200 even when no encryption key is configured."""
+    service = GitHubSyncService(
+        conn_repo=conn_repo,  # type: ignore[arg-type]
+        task_repo=task_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        cipher=None,
+        api_client=FakeApiClient(),  # type: ignore[arg-type]
+    )
+    app = create_app()
+    app.dependency_overrides[get_github_sync_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    with TestClient(app) as c:
+        response = c.get("/api/v1/integrations/github/status")
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_sync_without_encryption_key_returns_503(
+    user_id: uuid.UUID,
+    conn_repo: FakeConnRepo,
+    task_repo: FakeTaskRepo,
+    project_repo: FakeProjectRepo,
+    org_repo: FakeOrgRepo,
+    project_id: uuid.UUID,
+) -> None:
+    """POST /sync returns 503 github_not_configured when cipher is absent."""
+    cipher = TokenCipher(FERNET_KEY)
+    conn_repo.seed(
+        GitHubConnection(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            github_user_id="1",
+            github_login="octocat",
+            access_token_encrypted=cipher.encrypt("gho_abc"),
+            scopes="repo",
+            connected_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+    )
+    service = GitHubSyncService(
+        conn_repo=conn_repo,  # type: ignore[arg-type]
+        task_repo=task_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        cipher=None,
+        api_client=FakeApiClient(),  # type: ignore[arg-type]
+    )
+    app = create_app()
+    app.dependency_overrides[get_github_sync_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    with TestClient(app) as c:
+        response = c.post(f"/api/v1/integrations/github/sync?project_id={project_id}")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "github_not_configured"

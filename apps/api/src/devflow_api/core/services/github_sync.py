@@ -36,7 +36,7 @@ class GitHubSyncService:
         task_repo: TaskRepository,
         project_repo: ProjectRepository,
         org_repo: OrganizationRepository,
-        cipher: TokenCipher,
+        cipher: TokenCipher | None,
         api_client: GitHubApiClient,
     ) -> None:
         self._conn_repo = conn_repo
@@ -45,6 +45,16 @@ class GitHubSyncService:
         self._org_repo = org_repo
         self._cipher = cipher
         self._api_client = api_client
+
+    def _require_cipher(self) -> TokenCipher:
+        """Return the cipher or raise a clean 503 when encryption is not configured."""
+        if self._cipher is None:
+            raise AppError(
+                code="github_not_configured",
+                message="GitHub integration is not configured on this server.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return self._cipher
 
     async def _require_project_access(
         self, *, project_id: uuid.UUID, user_id: uuid.UUID
@@ -101,7 +111,7 @@ class GitHubSyncService:
         )
         github_user_id = str(gh_user["id"])
         github_login = str(gh_user["login"])
-        encrypted = self._cipher.encrypt(token_result.access_token)
+        encrypted = self._require_cipher().encrypt(token_result.access_token)
 
         existing = await self._conn_repo.get_by_user_id(user_id)
         if existing:
@@ -145,7 +155,7 @@ class GitHubSyncService:
                 message="GitHub account is not connected.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        token = self._cipher.decrypt(conn.access_token_encrypted)
+        token = self._require_cipher().decrypt(conn.access_token_encrypted)
         issues = await self._api_client.list_assigned_issues(token)
 
         created = 0
@@ -212,11 +222,13 @@ def get_github_sync_service(
     session: AsyncSession = Depends(get_session),
 ) -> GitHubSyncService:
     settings = get_settings()
+    key = settings.github_token_encryption_key
+    cipher = TokenCipher(key) if key else None
     return GitHubSyncService(
         conn_repo=GitHubConnectionRepository(session),
         task_repo=TaskRepository(session),
         project_repo=ProjectRepository(session),
         org_repo=OrganizationRepository(session),
-        cipher=TokenCipher(settings.github_token_encryption_key),
+        cipher=cipher,
         api_client=GitHubApiClient(),
     )
