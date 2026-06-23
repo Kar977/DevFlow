@@ -430,6 +430,66 @@ def test_delete_task_returns_204(
 
 
 # ---------------------------------------------------------------------------
+# Tests — assignee membership validation (TM-001)
+# ---------------------------------------------------------------------------
+
+
+def test_create_task_with_org_member_assignee_returns_201(
+    client: TestClient,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    org_id: uuid.UUID,
+    org_repo: FakeOrganizationRepository,
+) -> None:
+    """Assigning to a user who IS an org member must succeed."""
+    assignee_id = uuid.uuid4()
+    org_repo.seed_member(org_id, assignee_id)
+    response = client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": str(project_id),
+            "title": "Assigned task",
+            "assignee_id": str(assignee_id),
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["assignee_id"] == str(assignee_id)
+
+
+def test_create_task_with_non_member_assignee_returns_422(
+    client: TestClient,
+    project_id: uuid.UUID,
+) -> None:
+    """Assigning to a user who is NOT an org member must be rejected."""
+    response = client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": str(project_id),
+            "title": "Bad assignee",
+            "assignee_id": str(uuid.uuid4()),  # random UUID — not a member
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_assignee"
+
+
+def test_update_task_with_non_member_assignee_returns_422(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Updating assignee to a non-org-member must be rejected."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    response = client.patch(
+        f"/api/v1/tasks/{task.id}",
+        json={"assignee_id": str(uuid.uuid4())},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_assignee"
+
+
+# ---------------------------------------------------------------------------
 # Tests — work sessions
 # ---------------------------------------------------------------------------
 

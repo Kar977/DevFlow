@@ -8,6 +8,7 @@ The background generator (``run_report_generation``) opens its own DB session vi
 committed and closed by the time the background task runs.
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
@@ -24,6 +25,8 @@ from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.repositories.report import ReportRepository
 from devflow_api.core.services.metrics import MetricsService
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_WEEKLY_DAYS = 7
 _DEFAULT_OVERVIEW_DAYS = 30
 
@@ -34,8 +37,40 @@ _DEFAULT_OVERVIEW_DAYS = 30
 
 
 class ReportService:
-    def __init__(self, report_repo: ReportRepository) -> None:
+    def __init__(
+        self,
+        report_repo: ReportRepository,
+        project_repo: ProjectRepository | None = None,
+        org_repo: OrganizationRepository | None = None,
+    ) -> None:
         self._report_repo = report_repo
+        self._project_repo = project_repo
+        self._org_repo = org_repo
+
+    async def _require_project_access(
+        self, *, project_id: uuid.UUID, user_id: uuid.UUID
+    ) -> None:
+        """Raise 404/403 if user cannot access the project.
+
+        Only enforced when project_repo and org_repo are injected (i.e. in
+        the real service, not in legacy tests that omit these repos).
+        """
+        if self._project_repo is None or self._org_repo is None:
+            return
+        project = await self._project_repo.get_by_id(project_id)
+        if not project:
+            raise AppError(
+                code="not_found",
+                message="Project not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        member = await self._org_repo.get_member(project.org_id, user_id)
+        if not member:
+            raise AppError(
+                code="forbidden",
+                message="You do not have access to this project.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
 
     async def create_report(
         self,
@@ -49,8 +84,11 @@ class ReportService:
             raise AppError(
                 code="validation_error",
                 message="project_id is required for project_status reports.",
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             )
+        # Validate project access synchronously before enqueuing background work.
+        if report_type == "project_status" and project_id is not None:
+            await self._require_project_access(project_id=project_id, user_id=user_id)
         return await self._report_repo.create(
             user_id=user_id,
             report_type=report_type,
@@ -104,7 +142,11 @@ class ReportService:
 def get_report_service(
     session: AsyncSession = Depends(get_session),
 ) -> ReportService:
-    return ReportService(report_repo=ReportRepository(session))
+    return ReportService(
+        report_repo=ReportRepository(session),
+        project_repo=ProjectRepository(session),
+        org_repo=OrganizationRepository(session),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,10 +223,14 @@ async def run_report_generation(
                     generated_at=datetime.now(UTC),
                 )
             except Exception as exc:  # noqa: BLE001
+                # Log full detail server-side; store only a generic code in the
+                # user-visible field to avoid leaking internal error messages.
+                logger.exception("Report generation failed for report_id=%s", report_id)
+                _ = exc  # referenced to satisfy linters; detail is in the log
                 await report_repo.update_status(
                     report,
                     status="failed",
-                    error_message=str(exc),
+                    error_message="generation_failed",
                 )
 
 
