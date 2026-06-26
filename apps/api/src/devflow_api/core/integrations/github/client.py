@@ -60,3 +60,25 @@ class GitHubApiClient:
             params={"filter": "assigned", "state": "open", "per_page": "100"},
         )
         return result
+
+    async def list_assigned_prs(self, token: str) -> list[dict[str, Any]]:
+        """Return pull requests assigned to the user.
+
+        Filters GitHub issues to items that have a ``pull_request`` key.
+        """
+        items: list[dict[str, Any]] = await self._get(
+            "/issues",
+            token=token,
+            params={"filter": "assigned", "state": "all", "per_page": "100"},
+        )
+        return [item for item in items if "pull_request" in item]
+
+    async def list_pr_reviews(
+        self, token: str, owner: str, repo: str, pr_number: int
+    ) -> list[dict[str, Any]]:
+        """Return reviews for a specific pull request."""
+        result: list[dict[str, Any]] = await self._get(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+            token=token,
+        )
+        return result
