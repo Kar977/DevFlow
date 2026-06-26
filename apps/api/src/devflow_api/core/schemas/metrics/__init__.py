@@ -73,3 +73,11 @@ class ProjectMetricsResponse(BaseModel):
     overdue_tasks: int
     overdue_rate: float
     health: str
+
+
+class PRDashboardResponse(BaseModel):
+    stale_pr_count: int
+    time_to_first_review: float | None
+    review_velocity: float | None
+    weekly_throughput: int
+    review_ratio: float | None
