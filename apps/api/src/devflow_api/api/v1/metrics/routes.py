@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from devflow_api.core.schemas.metrics import (
     CompletionRateResponse,
     EstimationAccuracyResponse,
+    PRDashboardResponse,
     ProjectMetricsResponse,
     StreakResponse,
     SummaryResponse,
@@ -16,6 +17,10 @@ from devflow_api.core.schemas.metrics import (
 )
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.metrics import MetricsService, get_metrics_service
+from devflow_api.core.services.pr_metrics import (
+    PRMetricsService,
+    get_pr_metrics_service,
+)
 
 router = APIRouter()
 
@@ -113,3 +118,15 @@ async def get_project_metrics(
     return await service.get_project_metrics(
         project_id=project_id, user_id=subject.user_id
     )
+
+
+@router.get(
+    "/pr-dashboard",
+    response_model=PRDashboardResponse,
+    summary="GitHub PR-flow KPI dashboard",
+)
+async def get_pr_dashboard(
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: PRMetricsService = Depends(get_pr_metrics_service),
+) -> PRDashboardResponse:
+    return await service.get_pr_dashboard(user_id=subject.user_id)

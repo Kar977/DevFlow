@@ -1,7 +1,5 @@
 """GitHub integration routes — OAuth flow, sync, and webhook handling."""
 
-import uuid
-
 from fastapi import APIRouter, Depends, Header, Query, Request, status
 
 from devflow_api.core.schemas.github import (
@@ -78,14 +76,13 @@ async def disconnect(
 @router.post(
     "/sync",
     response_model=SyncResultResponse,
-    summary="Import GitHub issues assigned to the current user into a project",
+    summary="Sync assigned GitHub PRs and their reviews for the current user",
 )
 async def sync(
-    project_id: uuid.UUID = Query(...),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: GitHubSyncService = Depends(get_github_sync_service),
 ) -> SyncResultResponse:
-    return await service.sync(user_id=subject.user_id, project_id=project_id)
+    return await service.sync(user_id=subject.user_id)
 
 
 _WEBHOOK_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB
