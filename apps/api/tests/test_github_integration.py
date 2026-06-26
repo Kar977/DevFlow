@@ -23,9 +23,9 @@ from devflow_api.core.integrations.github.oauth import (
 from devflow_api.core.integrations.github.sync import issue_to_task_fields
 from devflow_api.core.integrations.github.webhooks import verify_signature
 from devflow_api.core.models.github_connection import GitHubConnection
-from devflow_api.core.models.organization_member import OrganizationMember
-from devflow_api.core.models.project import Project
-from devflow_api.core.models.task import Task
+from devflow_api.core.models.pull_request import PullRequest
+from devflow_api.core.models.pull_request_review import PullRequestReview
+from devflow_api.core.models.sync_run import SyncRun
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.github_sync import (
     GitHubSyncService,
@@ -157,107 +157,156 @@ class FakeConnRepo:
         self._by_user[conn.user_id] = conn
 
 
-class FakeTaskRepo:
+class FakePRRepo:
     def __init__(self) -> None:
-        self._tasks: list[Task] = []
+        self._prs: dict[tuple[uuid.UUID, int], PullRequest] = {}
 
-    async def get_by_github_pr_url(
-        self, *, project_id: uuid.UUID, github_pr_url: str
-    ) -> Task | None:
-        return next(
-            (
-                t
-                for t in self._tasks
-                if t.project_id == project_id and t.github_pr_url == github_pr_url
-            ),
-            None,
-        )
-
-    async def create(
+    async def upsert(
         self,
         *,
-        project_id: uuid.UUID,
+        user_id: uuid.UUID,
+        github_pr_id: int,
+        github_repo_full_name: str,
+        number: int,
         title: str,
-        description: str | None,
-        priority: str,
-        estimate_minutes: int | None,
-        assignee_id: uuid.UUID | None,
-        due_date: datetime | None,
-        github_pr_url: str | None,
-        created_by: uuid.UUID,
-    ) -> Task:
+        author_login: str,
+        state: str,
+        created_at_github: datetime,
+        merged_at: datetime | None,
+        closed_at: datetime | None,
+        html_url: str,
+        last_synced_at: datetime,
+    ) -> PullRequest:
         now = datetime.now(UTC)
-        task = Task(
+        pr = PullRequest(
             id=uuid.uuid4(),
-            project_id=project_id,
+            user_id=user_id,
+            github_pr_id=github_pr_id,
+            github_repo_full_name=github_repo_full_name,
+            number=number,
             title=title,
-            description=description,
-            status="backlog",
-            priority=priority,
-            estimate_minutes=estimate_minutes,
-            assignee_id=assignee_id,
-            due_date=due_date,
-            github_pr_url=github_pr_url,
-            created_by=created_by,
+            author_login=author_login,
+            state=state,
+            created_at_github=created_at_github,
+            merged_at=merged_at,
+            closed_at=closed_at,
+            first_review_at=None,
+            html_url=html_url,
+            last_synced_at=last_synced_at,
             created_at=now,
             updated_at=now,
         )
-        self._tasks.append(task)
-        return task
+        key = (user_id, github_pr_id)
+        if key in self._prs:
+            pr.id = self._prs[key].id
+        self._prs[key] = pr
+        return pr
 
-    def seed(self, task: Task) -> None:
-        self._tasks.append(task)
+    async def set_first_review_at(
+        self, pr: PullRequest, first_review_at: datetime
+    ) -> PullRequest:
+        if pr.first_review_at is None:
+            pr.first_review_at = first_review_at
+        return pr
+
+    @property
+    def prs(self) -> list[PullRequest]:
+        return list(self._prs.values())
 
 
-class FakeProjectRepo:
+class FakeReviewRepo:
     def __init__(self) -> None:
-        self._projects: dict[uuid.UUID, Project] = {}
+        self._reviews: list[PullRequestReview] = []
 
-    async def get_by_id(self, project_id: uuid.UUID) -> Project | None:
-        return self._projects.get(project_id)
-
-    def seed(self, *, project_id: uuid.UUID, org_id: uuid.UUID) -> None:
-        self._projects[project_id] = Project(
-            id=project_id,
-            org_id=org_id,
-            name="API",
-            description=None,
-            status="active",
-            github_repo_url=None,
-            created_by=uuid.uuid4(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-
-
-class FakeOrgRepo:
-    def __init__(self) -> None:
-        self._members: dict[tuple[uuid.UUID, uuid.UUID], OrganizationMember] = {}
-
-    async def get_member(
-        self, org_id: uuid.UUID, user_id: uuid.UUID
-    ) -> OrganizationMember | None:
-        return self._members.get((org_id, user_id))
-
-    def seed(self, org_id: uuid.UUID, user_id: uuid.UUID) -> None:
-        self._members[(org_id, user_id)] = OrganizationMember(
+    async def upsert(
+        self,
+        *,
+        pull_request_id: uuid.UUID,
+        github_review_id: int,
+        reviewer_login: str,
+        state: str,
+        submitted_at: datetime,
+    ) -> PullRequestReview:
+        now = datetime.now(UTC)
+        review = PullRequestReview(
             id=uuid.uuid4(),
-            org_id=org_id,
-            user_id=user_id,
-            role="owner",
-            joined_at=datetime.now(UTC),
+            pull_request_id=pull_request_id,
+            github_review_id=github_review_id,
+            reviewer_login=reviewer_login,
+            state=state,
+            submitted_at=submitted_at,
+            created_at=now,
+            updated_at=now,
         )
+        self._reviews.append(review)
+        return review
+
+    @property
+    def reviews(self) -> list[PullRequestReview]:
+        return list(self._reviews)
+
+
+class FakeSyncRunRepo:
+    def __init__(self) -> None:
+        self._runs: list[SyncRun] = []
+
+    async def create(self, *, user_id: uuid.UUID) -> SyncRun:
+        now = datetime.now(UTC)
+        run = SyncRun(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            status="running",
+            prs_synced=0,
+            reviews_synced=0,
+            started_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        self._runs.append(run)
+        return run
+
+    async def complete(
+        self, run: SyncRun, *, prs_synced: int, reviews_synced: int
+    ) -> SyncRun:
+        run.status = "completed"
+        run.prs_synced = prs_synced
+        run.reviews_synced = reviews_synced
+        run.finished_at = datetime.now(UTC)
+        return run
+
+    async def fail(self, run: SyncRun, *, error_message: str) -> SyncRun:
+        run.status = "failed"
+        run.error_message = error_message
+        run.finished_at = datetime.now(UTC)
+        return run
+
+    @property
+    def runs(self) -> list[SyncRun]:
+        return list(self._runs)
 
 
 class FakeApiClient:
-    def __init__(self, issues: list[dict[str, Any]] | None = None) -> None:
-        self._issues = issues or []
+    def __init__(
+        self,
+        prs: list[dict[str, Any]] | None = None,
+        reviews: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self._prs = prs or []
+        self._reviews = reviews or []
 
     async def get_authenticated_user(self, token: str) -> dict[str, Any]:
         return {"id": 4242, "login": "octocat"}
 
     async def list_assigned_issues(self, token: str) -> list[dict[str, Any]]:
-        return self._issues
+        return self._prs
+
+    async def list_assigned_prs(self, token: str) -> list[dict[str, Any]]:
+        return self._prs
+
+    async def list_pr_reviews(
+        self, token: str, owner: str, repo: str, pr_number: int
+    ) -> list[dict[str, Any]]:
+        return self._reviews
 
 
 # ===========================================================================
@@ -271,37 +320,23 @@ def user_id() -> uuid.UUID:
 
 
 @pytest.fixture()
-def org_id() -> uuid.UUID:
-    return uuid.uuid4()
-
-
-@pytest.fixture()
-def project_id() -> uuid.UUID:
-    return uuid.uuid4()
-
-
-@pytest.fixture()
 def conn_repo() -> FakeConnRepo:
     return FakeConnRepo()
 
 
 @pytest.fixture()
-def task_repo() -> FakeTaskRepo:
-    return FakeTaskRepo()
+def pr_repo() -> FakePRRepo:
+    return FakePRRepo()
 
 
 @pytest.fixture()
-def project_repo(org_id: uuid.UUID, project_id: uuid.UUID) -> FakeProjectRepo:
-    repo = FakeProjectRepo()
-    repo.seed(project_id=project_id, org_id=org_id)
-    return repo
+def review_repo() -> FakeReviewRepo:
+    return FakeReviewRepo()
 
 
 @pytest.fixture()
-def org_repo(org_id: uuid.UUID, user_id: uuid.UUID) -> FakeOrgRepo:
-    repo = FakeOrgRepo()
-    repo.seed(org_id, user_id)
-    return repo
+def sync_run_repo() -> FakeSyncRunRepo:
+    return FakeSyncRunRepo()
 
 
 @pytest.fixture()
@@ -312,16 +347,16 @@ def api_client() -> FakeApiClient:
 @pytest.fixture()
 def make_service(
     conn_repo: FakeConnRepo,
-    task_repo: FakeTaskRepo,
-    project_repo: FakeProjectRepo,
-    org_repo: FakeOrgRepo,
+    pr_repo: FakePRRepo,
+    review_repo: FakeReviewRepo,
+    sync_run_repo: FakeSyncRunRepo,
 ) -> ServiceFactory:
     def _build(api_client: FakeApiClient) -> GitHubSyncService:
         return GitHubSyncService(
             conn_repo=conn_repo,  # type: ignore[arg-type]
-            task_repo=task_repo,  # type: ignore[arg-type]
-            project_repo=project_repo,  # type: ignore[arg-type]
-            org_repo=org_repo,  # type: ignore[arg-type]
+            pr_repo=pr_repo,  # type: ignore[arg-type]
+            review_repo=review_repo,  # type: ignore[arg-type]
+            sync_run_repo=sync_run_repo,  # type: ignore[arg-type]
             cipher=TokenCipher(FERNET_KEY),
             api_client=api_client,  # type: ignore[arg-type]
         )
@@ -471,21 +506,17 @@ def test_disconnect_removes_connection(
     assert response.status_code == 204
 
 
-def test_sync_not_connected_returns_400(
-    client: TestClient, project_id: uuid.UUID
-) -> None:
-    response = client.post(f"/api/v1/integrations/github/sync?project_id={project_id}")
+def test_sync_not_connected_returns_400(client: TestClient) -> None:
+    response = client.post("/api/v1/integrations/github/sync")
     assert response.status_code == 400
 
 
-def test_sync_imports_and_dedups(
+def test_sync_creates_prs_and_reviews(
     user_id: uuid.UUID,
-    org_id: uuid.UUID,
-    project_id: uuid.UUID,
     conn_repo: FakeConnRepo,
-    task_repo: FakeTaskRepo,
-    project_repo: FakeProjectRepo,
-    org_repo: FakeOrgRepo,
+    pr_repo: FakePRRepo,
+    review_repo: FakeReviewRepo,
+    sync_run_repo: FakeSyncRunRepo,
     make_service: ServiceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -504,30 +535,28 @@ def test_sync_imports_and_dedups(
             updated_at=datetime.now(UTC),
         )
     )
-    # one issue already imported -> should be skipped
-    task_repo.seed(
-        Task(
-            id=uuid.uuid4(),
-            project_id=project_id,
-            title="existing",
-            description=None,
-            status="backlog",
-            priority="medium",
-            estimate_minutes=None,
-            assignee_id=user_id,
-            due_date=None,
-            github_pr_url="https://gh/issues/1",
-            created_by=user_id,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-    )
-    api = FakeApiClient(
-        issues=[
-            {"title": "i1", "body": None, "html_url": "https://gh/issues/1"},
-            {"title": "i2", "body": "b", "html_url": "https://gh/issues/2"},
-        ]
-    )
+    prs_data = [
+        {
+            "number": 42,
+            "title": "Fix bug",
+            "user": {"login": "octocat"},
+            "state": "open",
+            "created_at": "2026-06-01T10:00:00Z",
+            "closed_at": None,
+            "html_url": "https://github.com/owner/repo/pull/42",
+            "repository_url": "https://api.github.com/repos/owner/repo",
+            "pull_request": {"merged_at": None},
+        }
+    ]
+    reviews_data = [
+        {
+            "id": 101,
+            "user": {"login": "reviewer1"},
+            "state": "APPROVED",
+            "submitted_at": "2026-06-02T10:00:00Z",
+        }
+    ]
+    api = FakeApiClient(prs=prs_data, reviews=reviews_data)
     service = make_service(api)
 
     app = create_app()
@@ -536,48 +565,82 @@ def test_sync_imports_and_dedups(
         subject_id=str(user_id)
     )
     with TestClient(app) as c:
-        response = c.post(f"/api/v1/integrations/github/sync?project_id={project_id}")
+        response = c.post("/api/v1/integrations/github/sync")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 2
-    assert body["created"] == 1
-    assert body["skipped"] == 1
+    assert body["prs_synced"] == 1
+    assert body["reviews_synced"] == 1
+    assert len(pr_repo.prs) == 1
+    assert len(review_repo.reviews) == 1
+    assert len(sync_run_repo.runs) == 1
+    assert sync_run_repo.runs[0].status == "completed"
 
 
-def test_sync_not_member_returns_403(
+def test_status_works_without_encryption_key(
     user_id: uuid.UUID,
     conn_repo: FakeConnRepo,
-    project_repo: FakeProjectRepo,
-    make_service: ServiceFactory,
-    monkeypatch: pytest.MonkeyPatch,
+    pr_repo: FakePRRepo,
+    review_repo: FakeReviewRepo,
+    sync_run_repo: FakeSyncRunRepo,
 ) -> None:
-    settings = Settings(github_token_encryption_key=FERNET_KEY)
-    monkeypatch.setattr(github_sync_module, "get_settings", lambda: settings)
-    foreign_project = uuid.uuid4()
-    project_repo.seed(project_id=foreign_project, org_id=uuid.uuid4())
-    conn_repo.seed(
-        GitHubConnection(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            github_user_id="1",
-            github_login="octocat",
-            access_token_encrypted="enc",
-            scopes="repo",
-            connected_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+    """GET /status must return 200 even when no encryption key is configured."""
+    service = GitHubSyncService(
+        conn_repo=conn_repo,  # type: ignore[arg-type]
+        pr_repo=pr_repo,  # type: ignore[arg-type]
+        review_repo=review_repo,  # type: ignore[arg-type]
+        sync_run_repo=sync_run_repo,  # type: ignore[arg-type]
+        cipher=None,
+        api_client=FakeApiClient(),  # type: ignore[arg-type]
     )
-    service = make_service(FakeApiClient())
     app = create_app()
     app.dependency_overrides[get_github_sync_service] = lambda: service
     app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
         subject_id=str(user_id)
     )
     with TestClient(app) as c:
-        response = c.post(
-            f"/api/v1/integrations/github/sync?project_id={foreign_project}"
+        response = c.get("/api/v1/integrations/github/status")
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_sync_without_encryption_key_returns_503(
+    user_id: uuid.UUID,
+    conn_repo: FakeConnRepo,
+    pr_repo: FakePRRepo,
+    review_repo: FakeReviewRepo,
+    sync_run_repo: FakeSyncRunRepo,
+) -> None:
+    """POST /sync returns 503 github_not_configured when cipher is absent."""
+    cipher = TokenCipher(FERNET_KEY)
+    conn_repo.seed(
+        GitHubConnection(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            github_user_id="1",
+            github_login="octocat",
+            access_token_encrypted=cipher.encrypt("gho_abc"),
+            scopes="repo",
+            connected_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
-    assert response.status_code == 403
+    )
+    service = GitHubSyncService(
+        conn_repo=conn_repo,  # type: ignore[arg-type]
+        pr_repo=pr_repo,  # type: ignore[arg-type]
+        review_repo=review_repo,  # type: ignore[arg-type]
+        sync_run_repo=sync_run_repo,  # type: ignore[arg-type]
+        cipher=None,
+        api_client=FakeApiClient(),  # type: ignore[arg-type]
+    )
+    app = create_app()
+    app.dependency_overrides[get_github_sync_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    with TestClient(app) as c:
+        response = c.post("/api/v1/integrations/github/sync")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "github_not_configured"
 
 
 def test_webhook_valid_signature_returns_204(client: TestClient) -> None:
@@ -626,71 +689,3 @@ def test_webhook_oversized_body_returns_413(client: TestClient) -> None:
         },
     )
     assert response.status_code == 413
-
-
-def test_status_works_without_encryption_key(
-    user_id: uuid.UUID,
-    conn_repo: FakeConnRepo,
-    task_repo: FakeTaskRepo,
-    project_repo: FakeProjectRepo,
-    org_repo: FakeOrgRepo,
-) -> None:
-    """GET /status must return 200 even when no encryption key is configured."""
-    service = GitHubSyncService(
-        conn_repo=conn_repo,  # type: ignore[arg-type]
-        task_repo=task_repo,  # type: ignore[arg-type]
-        project_repo=project_repo,  # type: ignore[arg-type]
-        org_repo=org_repo,  # type: ignore[arg-type]
-        cipher=None,
-        api_client=FakeApiClient(),  # type: ignore[arg-type]
-    )
-    app = create_app()
-    app.dependency_overrides[get_github_sync_service] = lambda: service
-    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
-        subject_id=str(user_id)
-    )
-    with TestClient(app) as c:
-        response = c.get("/api/v1/integrations/github/status")
-    assert response.status_code == 200
-    assert response.json() is None
-
-
-def test_sync_without_encryption_key_returns_503(
-    user_id: uuid.UUID,
-    conn_repo: FakeConnRepo,
-    task_repo: FakeTaskRepo,
-    project_repo: FakeProjectRepo,
-    org_repo: FakeOrgRepo,
-    project_id: uuid.UUID,
-) -> None:
-    """POST /sync returns 503 github_not_configured when cipher is absent."""
-    cipher = TokenCipher(FERNET_KEY)
-    conn_repo.seed(
-        GitHubConnection(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            github_user_id="1",
-            github_login="octocat",
-            access_token_encrypted=cipher.encrypt("gho_abc"),
-            scopes="repo",
-            connected_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-    )
-    service = GitHubSyncService(
-        conn_repo=conn_repo,  # type: ignore[arg-type]
-        task_repo=task_repo,  # type: ignore[arg-type]
-        project_repo=project_repo,  # type: ignore[arg-type]
-        org_repo=org_repo,  # type: ignore[arg-type]
-        cipher=None,
-        api_client=FakeApiClient(),  # type: ignore[arg-type]
-    )
-    app = create_app()
-    app.dependency_overrides[get_github_sync_service] = lambda: service
-    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
-        subject_id=str(user_id)
-    )
-    with TestClient(app) as c:
-        response = c.post(f"/api/v1/integrations/github/sync?project_id={project_id}")
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "github_not_configured"
