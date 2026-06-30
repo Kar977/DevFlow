@@ -70,6 +70,31 @@ class OrganizationService:
             )
         return org
 
+    async def ensure_personal_organization(
+        self,
+        *,
+        user_id: uuid.UUID,
+        display_name: str,
+    ) -> Organization:
+        """Idempotently create (or return) the personal workspace for a user.
+
+        Called on every login so that both new and existing accounts get an org
+        without any extra UI step.  The slug ``personal-<user_id_hex[:12]>``
+        is globally unique and will never collide with user-chosen slugs
+        (which are derived from free-form names).
+        """
+        existing = await self._org_repo.list_for_user(user_id)
+        if existing:
+            return existing[0]
+
+        name = f"{display_name}'s Workspace"
+        slug = f"personal-{user_id.hex[:12]}"
+        org = await self._org_repo.create(
+            name=name, slug=slug, description=None, created_by=user_id
+        )
+        await self._org_repo.add_member(org_id=org.id, user_id=user_id, role="owner")
+        return org
+
     async def list_user_organizations(self, user_id: uuid.UUID) -> list[Organization]:
         return await self._org_repo.list_for_user(user_id)
 

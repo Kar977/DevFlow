@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { User } from "@/shared/types";
 
 type AuthState = {
@@ -14,13 +15,26 @@ type AuthActions = {
   setUser: (user: User) => void;
 };
 
-export const useAuthStore = create<AuthState & AuthActions>((set) => ({
-  accessToken: null,
-  refreshToken: null,
-  user: null,
-  login: (accessToken, refreshToken, user) =>
-    set({ accessToken, refreshToken, user }),
-  logout: () => set({ accessToken: null, refreshToken: null, user: null }),
-  setToken: (accessToken) => set({ accessToken }),
-  setUser: (user) => set({ user }),
-}));
+export const useAuthStore = create<AuthState & AuthActions>()(
+  persist(
+    (set) => ({
+      accessToken: null,
+      refreshToken: null,
+      user: null,
+      login: (accessToken, refreshToken, user) =>
+        set({ accessToken, refreshToken, user }),
+      logout: () => set({ accessToken: null, refreshToken: null, user: null }),
+      setToken: (accessToken) => set({ accessToken }),
+      setUser: (user) => set({ user }),
+    }),
+    {
+      name: "devflow-auth",
+      // Only persist auth tokens and user — nothing else from the store
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        user: state.user,
+      }),
+    }
+  )
+);

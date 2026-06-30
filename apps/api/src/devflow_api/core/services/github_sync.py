@@ -3,6 +3,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,7 +127,12 @@ class GitHubSyncService:
         await self._conn_repo.delete(conn)
 
     async def sync(self, *, user_id: uuid.UUID) -> SyncResultResponse:
-        """Fetch assigned PRs and their reviews from GitHub, upsert locally."""
+        """Fetch PRs authored by or assigned to the user, upsert locally.
+
+        Merges two GitHub API calls so both solo developers (who create PRs but
+        don't self-assign) and team members (who have PRs assigned for review)
+        see their activity.  Deduplication is by ``html_url``.
+        """
         conn = await self._conn_repo.get_by_user_id(user_id)
         if not conn:
             raise AppError(
@@ -139,7 +145,15 @@ class GitHubSyncService:
         prs_synced = 0
         reviews_synced = 0
         try:
-            prs = await self._api_client.list_assigned_prs(token)
+            assigned = await self._api_client.list_assigned_prs(token)
+            authored = await self._api_client.list_authored_prs(token)
+            seen_urls: set[str] = set()
+            prs: list[dict[str, Any]] = []
+            for pr_data in assigned + authored:
+                url = str(pr_data["html_url"])
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    prs.append(pr_data)
             now = datetime.now(UTC)
             for pr_data in prs:
                 owner_repo: str = pr_data["repository_url"].split("/repos/", 1)[-1]

@@ -6,8 +6,8 @@ import {
 import { useProjectsQuery } from "@/features/projects/hooks/useProjectsQuery";
 
 interface SyncResult {
-  tasks_created: number;
-  tasks_updated: number;
+  prs_synced: number;
+  reviews_synced: number;
 }
 
 interface Props {
@@ -48,7 +48,7 @@ export function SyncPanel({ onSync, isSyncing, syncResult }: Props) {
         </div>
         {syncResult && (
           <p className="text-sm text-muted-foreground">
-            Utworzono: {syncResult.tasks_created}, zaktualizowano: {syncResult.tasks_updated} zadań
+            Zsynchronizowano: {syncResult.prs_synced} PR-ów, {syncResult.reviews_synced} recenzji
           </p>
         )}
       </CardContent>

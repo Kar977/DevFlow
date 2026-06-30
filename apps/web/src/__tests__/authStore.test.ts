@@ -12,6 +12,7 @@ const mockUser: User = {
 };
 
 beforeEach(() => {
+  localStorage.clear();
   useAuthStore.setState({ accessToken: null, refreshToken: null, user: null });
 });
 

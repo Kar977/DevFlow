@@ -6,9 +6,11 @@ export function useGitHubMutations() {
 
   const authorize = useMutation({
     mutationFn: () =>
-      apiClient.post("/integrations/github/authorize").then((r) => r.data as { url: string }),
-    onSuccess: ({ url }) => {
-      window.location.href = url;
+      apiClient
+        .post("/integrations/github/authorize")
+        .then((r) => r.data as { authorize_url: string }),
+    onSuccess: ({ authorize_url }) => {
+      window.location.href = authorize_url;
     },
   });
 
@@ -21,7 +23,7 @@ export function useGitHubMutations() {
     mutationFn: (projectId: string) =>
       apiClient
         .post("/integrations/github/sync", { project_id: projectId })
-        .then((r) => r.data as { tasks_created: number; tasks_updated: number }),
+        .then((r) => r.data as { prs_synced: number; reviews_synced: number }),
   });
 
   return {

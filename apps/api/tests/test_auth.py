@@ -7,10 +7,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from devflow_api.core.models.organization import Organization
+from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.refresh_token import RefreshToken
 from devflow_api.core.models.user import User
 from devflow_api.core.security import hash_token
 from devflow_api.core.services.auth import AuthService, get_auth_service
+from devflow_api.core.services.organization import OrganizationService
 from devflow_api.main import create_app
 
 # ---------------------------------------------------------------------------
@@ -60,6 +63,54 @@ class FakeUserRepository:
         user.full_name = full_name
         user.avatar_url = avatar_url
         return user
+
+
+class FakeOrganizationRepository:
+    def __init__(self) -> None:
+        self._orgs: dict[uuid.UUID, Organization] = {}
+        self._members: list[OrganizationMember] = []
+
+    async def list_for_user(self, user_id: uuid.UUID) -> list[Organization]:
+        member_org_ids = {m.org_id for m in self._members if m.user_id == user_id}
+        return [o for o in self._orgs.values() if o.id in member_org_ids]
+
+    async def get_by_slug(self, slug: str) -> Organization | None:
+        return next((o for o in self._orgs.values() if o.slug == slug), None)
+
+    async def create(
+        self,
+        *,
+        name: str,
+        slug: str,
+        description: str | None,
+        created_by: uuid.UUID,
+    ) -> Organization:
+        now = datetime.now(UTC)
+        org = Organization(
+            id=uuid.uuid4(),
+            name=name,
+            slug=slug,
+            description=description,
+            created_by=created_by,
+            created_at=now,
+            updated_at=now,
+        )
+        self._orgs[org.id] = org
+        return org
+
+    async def add_member(
+        self, *, org_id: uuid.UUID, user_id: uuid.UUID, role: str
+    ) -> OrganizationMember:
+        now = datetime.now(UTC)
+        member = OrganizationMember(
+            id=uuid.uuid4(),
+            org_id=org_id,
+            user_id=user_id,
+            role=role,
+            joined_at=now,
+        )
+        self._members.append(member)
+        return member
 
 
 class FakeRefreshTokenRepository:
@@ -113,11 +164,29 @@ def token_repo() -> FakeRefreshTokenRepository:
 
 
 @pytest.fixture
+def org_repo() -> FakeOrganizationRepository:
+    return FakeOrganizationRepository()
+
+
+@pytest.fixture
+def org_service(org_repo: FakeOrganizationRepository) -> OrganizationService:
+    return OrganizationService(
+        org_repo=org_repo,  # type: ignore[arg-type]
+        user_repo=FakeUserRepository(),  # type: ignore[arg-type]
+    )
+
+
+@pytest.fixture
 def auth_service(
     user_repo: FakeUserRepository,
     token_repo: FakeRefreshTokenRepository,
+    org_service: OrganizationService,
 ) -> AuthService:
-    return AuthService(user_repo=user_repo, token_repo=token_repo)  # type: ignore[arg-type]
+    return AuthService(
+        user_repo=user_repo,  # type: ignore[arg-type]
+        token_repo=token_repo,  # type: ignore[arg-type]
+        org_service=org_service,
+    )
 
 
 @pytest.fixture
@@ -367,3 +436,60 @@ def test_update_me_changes_full_name(auth_client: TestClient) -> None:
     )
     assert resp.status_code == 200
     assert resp.json()["full_name"] == "Alice Dev"
+
+
+# ---------------------------------------------------------------------------
+# Auto-org on login
+# ---------------------------------------------------------------------------
+
+
+def test_login_creates_personal_org(
+    user_repo: FakeUserRepository,
+    token_repo: FakeRefreshTokenRepository,
+    org_repo: FakeOrganizationRepository,
+    org_service: OrganizationService,
+) -> None:
+    """First login for a new user creates exactly one personal workspace."""
+    svc = AuthService(
+        user_repo=user_repo,  # type: ignore[arg-type]
+        token_repo=token_repo,  # type: ignore[arg-type]
+        org_service=org_service,
+    )
+
+    import asyncio
+
+    async def run() -> None:
+        await svc.register(email="new@example.com", password="password1")
+        assert len(org_repo._orgs) == 0, "register must not create an org"
+
+        await svc.login(email="new@example.com", password="password1")
+        orgs = list(org_repo._orgs.values())
+        assert len(orgs) == 1
+        assert orgs[0].slug.startswith("personal-")
+        assert "Workspace" in orgs[0].name
+
+    asyncio.run(run())
+
+
+def test_login_idempotent_org(
+    user_repo: FakeUserRepository,
+    token_repo: FakeRefreshTokenRepository,
+    org_repo: FakeOrganizationRepository,
+    org_service: OrganizationService,
+) -> None:
+    """Repeated logins must not create duplicate personal orgs."""
+    svc = AuthService(
+        user_repo=user_repo,  # type: ignore[arg-type]
+        token_repo=token_repo,  # type: ignore[arg-type]
+        org_service=org_service,
+    )
+
+    import asyncio
+
+    async def run() -> None:
+        await svc.register(email="repeat@example.com", password="password1")
+        await svc.login(email="repeat@example.com", password="password1")
+        await svc.login(email="repeat@example.com", password="password1")
+        assert len(org_repo._orgs) == 1
+
+    asyncio.run(run())

@@ -2,6 +2,8 @@ services:
   api:
     build:
       context: ../apps/api
+    env_file:
+      - ../apps/api/.env
     environment:
       DEVFLOW_API_ENVIRONMENT: local
       DEVFLOW_API_DEBUG: "true"

@@ -73,6 +73,19 @@ class GitHubApiClient:
         )
         return [item for item in items if "pull_request" in item]
 
+    async def list_authored_prs(self, token: str) -> list[dict[str, Any]]:
+        """Return pull requests created by the authenticated user.
+
+        Uses ``filter=created`` so solo developers see their own PRs even when
+        those PRs are not explicitly assigned to them.
+        """
+        items: list[dict[str, Any]] = await self._get(
+            "/issues",
+            token=token,
+            params={"filter": "created", "state": "all", "per_page": "100"},
+        )
+        return [item for item in items if "pull_request" in item]
+
     async def list_pr_reviews(
         self, token: str, owner: str, repo: str, pr_number: int
     ) -> list[dict[str, Any]]:
