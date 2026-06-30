@@ -108,3 +108,13 @@ API is available at `http://localhost:8000`. Interactive Swagger docs: `http://l
 - [Backend API](apps/api/README.md) — endpoint spec, data models, development guide
 - [Product Requirements](docs/product/README.md) — user stories, metrics, vision
 - [Infrastructure](infra/README.md) — Docker, CI/CD, deployment
+
+## Project scope note
+
+The initial product brief (`.local_docs/DevFlow Insight/`) defined a GitHub PR analytics
+tool. During implementation the scope pivoted to a developer productivity platform
+(projects, tasks, time tracking). The original brief files are preserved as historical
+context but are superseded.
+
+- [Reconciliation report](docs/reconciliation-report.md) — full audit of brief vs. implementation
+- [Decision log addendum](docs/decision-log-addendum.md) — formal record of the product pivot

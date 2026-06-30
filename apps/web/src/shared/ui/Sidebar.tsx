@@ -1,10 +1,22 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CheckSquare, FolderOpen, BarChart2, FileText, Github, User } from "lucide-react";
+import {
+  LayoutDashboard,
+  CheckSquare,
+  FolderOpen,
+  BarChart2,
+  FileText,
+  Github,
+  User,
+  GitPullRequest,
+  GitBranch,
+} from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useTimerStore } from "@/shared/store/timerStore";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/pull-requests", icon: GitPullRequest, label: "Pull Requests" },
+  { to: "/repositories", icon: GitBranch, label: "Repozytoria" },
   { to: "/tasks", icon: CheckSquare, label: "Zadania" },
   { to: "/projects", icon: FolderOpen, label: "Projekty" },
   { to: "/metrics", icon: BarChart2, label: "Metryki" },

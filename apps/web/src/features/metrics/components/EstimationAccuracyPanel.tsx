@@ -1,11 +1,20 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui";
 
 interface Props {
-  data?: { accuracy_pct: number; avg_over_estimate_pct?: number };
+  data?: {
+    sample_size: number;
+    accurate_count: number;
+    average_ratio: number | null;
+  };
   isLoading?: boolean;
 }
 
 export function EstimationAccuracyPanel({ data, isLoading }: Props) {
+  const accuracyPct =
+    data && data.sample_size > 0 ? (data.accurate_count / data.sample_size) * 100 : null;
+  const avgOverrunPct =
+    data?.average_ratio != null ? (data.average_ratio - 1) * 100 : null;
+
   return (
     <Card>
       <CardHeader>
@@ -13,21 +22,23 @@ export function EstimationAccuracyPanel({ data, isLoading }: Props) {
       </CardHeader>
       <CardContent className="space-y-2">
         {isLoading && <p className="text-muted-foreground text-sm">Ładowanie...</p>}
-        {data && (
+        {data && data.sample_size > 0 && (
           <>
             <div>
               <p className="text-sm text-muted-foreground">Dokładność</p>
-              <p className="text-2xl font-bold">{data.accuracy_pct.toFixed(1)}%</p>
+              <p className="text-2xl font-bold">{accuracyPct!.toFixed(1)}%</p>
             </div>
-            {data.avg_over_estimate_pct !== undefined && (
+            {avgOverrunPct !== null && (
               <div>
                 <p className="text-sm text-muted-foreground">Śr. przekroczenie</p>
-                <p className="text-lg font-semibold">{data.avg_over_estimate_pct.toFixed(1)}%</p>
+                <p className="text-lg font-semibold">{avgOverrunPct.toFixed(1)}%</p>
               </div>
             )}
           </>
         )}
-        {!data && !isLoading && <p className="text-muted-foreground text-sm">Brak danych.</p>}
+        {(!data || data.sample_size === 0) && !isLoading && (
+          <p className="text-muted-foreground text-sm">Brak danych.</p>
+        )}
       </CardContent>
     </Card>
   );

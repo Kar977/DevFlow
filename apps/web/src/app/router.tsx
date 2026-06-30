@@ -28,6 +28,15 @@ const ProfilePage = lazy(() =>
 const ProjectDetailPage = lazy(() =>
   import("@/features/projects/pages/ProjectDetailPage").then((m) => ({ default: m.ProjectDetailPage }))
 );
+const PullRequestListPage = lazy(() =>
+  import("@/features/pull-requests/pages/PullRequestListPage").then((m) => ({ default: m.PullRequestListPage }))
+);
+const PullRequestDetailPage = lazy(() =>
+  import("@/features/pull-requests/pages/PullRequestDetailPage").then((m) => ({ default: m.PullRequestDetailPage }))
+);
+const RepositoryListPage = lazy(() =>
+  import("@/features/repositories/pages/RepositoryListPage").then((m) => ({ default: m.RepositoryListPage }))
+);
 
 export function ProtectedRoute() {
   const token = useAuthStore((s) => s.accessToken);
@@ -54,6 +63,9 @@ export const router = createBrowserRouter([
       { path: "tasks", element: <TaskListPage /> },
       { path: "projects", element: <ProjectListPage /> },
       { path: "projects/:projectId", element: <ProjectDetailPage /> },
+      { path: "pull-requests", element: <PullRequestListPage /> },
+      { path: "pull-requests/:prId", element: <PullRequestDetailPage /> },
+      { path: "repositories", element: <RepositoryListPage /> },
       { path: "metrics", element: <MetricsDashboardPage /> },
       { path: "reports", element: <ReportListPage /> },
       { path: "settings/github", element: <GitHubIntegrationPage /> },

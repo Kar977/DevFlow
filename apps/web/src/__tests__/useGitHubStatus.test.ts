@@ -16,7 +16,13 @@ describe("useGitHubStatus", () => {
   it("returns connected status when github is linked", async () => {
     server.use(
       http.get("*/integrations/github/status", () =>
-        HttpResponse.json({ connected: true, github_login: "octocat", github_avatar_url: null })
+        HttpResponse.json({
+          id: "uuid-1",
+          github_user_id: "4242",
+          github_login: "octocat",
+          scopes: "read:user",
+          connected_at: "2026-01-01T00:00:00Z",
+        })
       )
     );
     const { result } = renderHook(() => useGitHubStatus(), { wrapper: wrapper() });
@@ -25,14 +31,13 @@ describe("useGitHubStatus", () => {
     expect(result.current.data?.github_login).toBe("octocat");
   });
 
-  it("returns not connected status", async () => {
+  it("returns not connected status when api returns null", async () => {
     server.use(
-      http.get("*/integrations/github/status", () =>
-        HttpResponse.json({ connected: false })
-      )
+      http.get("*/integrations/github/status", () => HttpResponse.json(null))
     );
     const { result } = renderHook(() => useGitHubStatus(), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.connected).toBe(false);
+    expect(result.current.data?.github_login).toBeNull();
   });
 });

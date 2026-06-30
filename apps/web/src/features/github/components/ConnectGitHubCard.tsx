@@ -27,13 +27,6 @@ export function ConnectGitHubCard({
         {connected ? (
           <>
             <div className="flex items-center gap-3">
-              {status?.github_avatar_url && (
-                <img
-                  src={status.github_avatar_url}
-                  alt="GitHub avatar"
-                  className="h-8 w-8 rounded-full"
-                />
-              )}
               <div className="flex flex-col">
                 <span className="font-medium">{status?.github_login}</span>
                 <span className="text-xs text-green-600">Połączono</span>

@@ -23,6 +23,5 @@ class GitHubConnectionResponse(BaseModel):
 
 
 class SyncResultResponse(BaseModel):
-    created: int
-    skipped: int
-    total: int
+    prs_synced: int
+    reviews_synced: int
