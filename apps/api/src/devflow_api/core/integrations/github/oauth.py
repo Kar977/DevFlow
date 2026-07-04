@@ -68,6 +68,67 @@ def _sign_state(payload: str, secret_key: str) -> str:
     return hmac.new(secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
+_INSTALL_STATE_PREFIX = "install"
+_INSTALL_STATE_PARTS = 6
+
+
+def create_install_state(
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    secret_key: str,
+    ttl_seconds: int = _STATE_TTL_SECONDS,
+) -> str:
+    """Return a signed state token for the GitHub App installation flow.
+
+    Format: ``install:<org_id>:<user_id>:<nonce>:<exp_ts>:<hmac_hex>``.
+    Carries the DevFlow organization the installation should be linked to.
+    """
+    nonce = secrets.token_urlsafe(16)
+    exp_ts = str(int(time.time()) + ttl_seconds)
+    payload = _STATE_SEP.join(
+        [_INSTALL_STATE_PREFIX, str(org_id), str(user_id), nonce, exp_ts]
+    )
+    sig = _sign_state(payload, secret_key)
+    return f"{payload}{_STATE_SEP}{sig}"
+
+
+def verify_install_state(
+    state: str, expected_user_id: uuid.UUID, *, secret_key: str
+) -> uuid.UUID:
+    """Validate an install state and return the organization id it carries.
+
+    Raises ``ValueError`` when the state is malformed, tampered, expired,
+    or was issued to a different user.
+    """
+    parts = state.split(_STATE_SEP)
+    if len(parts) != _INSTALL_STATE_PARTS or parts[0] != _INSTALL_STATE_PREFIX:
+        raise ValueError("Invalid install state format.")
+
+    _prefix, org_id_str, user_id_str, _nonce, exp_ts_str, received_sig = parts
+    payload = _STATE_SEP.join(parts[:-1])
+
+    expected_sig = _sign_state(payload, secret_key)
+    if not hmac.compare_digest(expected_sig, received_sig):
+        raise ValueError("Install state signature is invalid.")
+
+    try:
+        exp_ts = int(exp_ts_str)
+    except ValueError as exc:
+        raise ValueError("Install state expiry timestamp is malformed.") from exc
+
+    if time.time() > exp_ts:
+        raise ValueError("Install state has expired.")
+
+    if user_id_str != str(expected_user_id):
+        raise ValueError("Install state user mismatch.")
+
+    try:
+        return uuid.UUID(org_id_str)
+    except ValueError as exc:
+        raise ValueError("Install state organization id is malformed.") from exc
+
+
 @dataclass(frozen=True)
 class OAuthTokenResult:
     access_token: str

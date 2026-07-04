@@ -303,6 +303,9 @@ class FakeApiClient:
     async def list_assigned_prs(self, token: str) -> list[dict[str, Any]]:
         return self._prs
 
+    async def list_authored_prs(self, token: str) -> list[dict[str, Any]]:
+        return []
+
     async def list_pr_reviews(
         self, token: str, owner: str, repo: str, pr_number: int
     ) -> list[dict[str, Any]]:

@@ -16,7 +16,9 @@ from devflow_api.core.services.pr_metrics import (
 )
 from devflow_api.main import create_app
 
-_NOW = datetime(2026, 6, 26, 12, 0, 0, tzinfo=UTC)
+# Windows in PRMetricsService are computed against the real clock, so test
+# data must be anchored to it as well.
+_NOW = datetime.now(UTC)
 
 
 def _pr(
