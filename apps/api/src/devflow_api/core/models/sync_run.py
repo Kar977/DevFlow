@@ -1,4 +1,4 @@
-"""SyncRun ORM model — tracks each GitHub sync execution."""
+"""SyncRun ORM model — tracks each organization-level GitHub sync execution."""
 
 import uuid
 from datetime import datetime
@@ -13,10 +13,14 @@ from devflow_api.core.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 class SyncRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "sync_runs"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    triggered_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False)
+    repos_synced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prs_synced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reviews_synced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)

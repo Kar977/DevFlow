@@ -1,15 +1,26 @@
-"""PRMetricsService — computes the 5 GitHub PR-flow KPIs."""
+"""PRMetricsService — computes the 5 GitHub PR-flow KPIs for an organization."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import Depends
+from fastapi import Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.database import get_session
+from devflow_api.core.errors import AppError
 from devflow_api.core.models.pull_request import PullRequest
+from devflow_api.core.repositories.github_connection import (
+    GitHubConnectionRepository,
+)
+from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.pull_request import PullRequestRepository
-from devflow_api.core.schemas.metrics import PRDashboardResponse
+from devflow_api.core.repositories.user import UserRepository
+from devflow_api.core.schemas.metrics import (
+    PRDashboardMemberResponse,
+    PRDashboardMembersResponse,
+    PRDashboardResponse,
+)
+from devflow_api.core.services.org_access import require_member
 
 _STALE_THRESHOLD_DAYS = 5
 _VELOCITY_WINDOW_DAYS = 7
@@ -17,11 +28,42 @@ _THROUGHPUT_WINDOW_DAYS = 7
 
 
 class PRMetricsService:
-    def __init__(self, pr_repo: PullRequestRepository) -> None:
+    def __init__(
+        self,
+        pr_repo: PullRequestRepository,
+        org_repo: OrganizationRepository,
+        conn_repo: GitHubConnectionRepository,
+        user_repo: UserRepository,
+    ) -> None:
         self._pr_repo = pr_repo
+        self._org_repo = org_repo
+        self._conn_repo = conn_repo
+        self._user_repo = user_repo
 
-    async def get_pr_dashboard(self, *, user_id: uuid.UUID) -> PRDashboardResponse:
-        prs = await self._pr_repo.list_for_user(user_id, limit=1000, offset=0)
+    async def get_pr_dashboard(
+        self,
+        *,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        member_user_id: uuid.UUID | None = None,
+    ) -> PRDashboardResponse:
+        await require_member(self._org_repo, org_id, user_id)
+        author_login: str | None = None
+        if member_user_id is not None:
+            conn = await self._conn_repo.get_by_user_id(member_user_id)
+            if conn is None:
+                raise AppError(
+                    code="member_not_linked",
+                    message=(
+                        "This member has not linked a GitHub account, "
+                        "so their PRs cannot be attributed."
+                    ),
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+            author_login = conn.github_login
+        prs = await self._pr_repo.list_for_org(
+            org_id, author_login=author_login, limit=1000, offset=0
+        )
         now = datetime.now(UTC)
         return PRDashboardResponse(
             stale_pr_count=_stale_pr_count(prs, now),
@@ -30,6 +72,28 @@ class PRMetricsService:
             weekly_throughput=_weekly_throughput(prs, now),
             review_ratio=_review_ratio(prs),
         )
+
+    async def list_members(
+        self, *, org_id: uuid.UUID, user_id: uuid.UUID
+    ) -> PRDashboardMembersResponse:
+        """Return org members with their GitHub logins for the metric filter."""
+        await require_member(self._org_repo, org_id, user_id)
+        members = await self._org_repo.list_members(org_id)
+        items: list[PRDashboardMemberResponse] = []
+        for member in members:
+            user = await self._user_repo.get_by_id(member.user_id)
+            conn = await self._conn_repo.get_by_user_id(member.user_id)
+            display_name = ""
+            if user is not None:
+                display_name = user.full_name or user.email
+            items.append(
+                PRDashboardMemberResponse(
+                    user_id=member.user_id,
+                    display_name=display_name,
+                    github_login=conn.github_login if conn else None,
+                )
+            )
+        return PRDashboardMembersResponse(items=items)
 
 
 def _stale_pr_count(prs: list[PullRequest], now: datetime) -> int:
@@ -97,4 +161,9 @@ def _ensure_aware(dt: datetime) -> datetime:
 def get_pr_metrics_service(
     session: AsyncSession = Depends(get_session),
 ) -> PRMetricsService:
-    return PRMetricsService(pr_repo=PullRequestRepository(session))
+    return PRMetricsService(
+        pr_repo=PullRequestRepository(session),
+        org_repo=OrganizationRepository(session),
+        conn_repo=GitHubConnectionRepository(session),
+        user_repo=UserRepository(session),
+    )

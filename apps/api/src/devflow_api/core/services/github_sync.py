@@ -1,8 +1,11 @@
-"""GitHubSyncService — OAuth connection, sync, and webhook handling."""
+"""GitHubSyncService — the per-user GitHub identity link (OAuth).
+
+Repo/PR data flows through the GitHub App services (``github_app``,
+``org_sync``).  This service only maintains the user ↔ github_login mapping
+used for member-level metric attribution.
+"""
 
 import uuid
-from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,28 +25,16 @@ from devflow_api.core.models.github_connection import GitHubConnection
 from devflow_api.core.repositories.github_connection import (
     GitHubConnectionRepository,
 )
-from devflow_api.core.repositories.pull_request import PullRequestRepository
-from devflow_api.core.repositories.pull_request_review import (
-    PullRequestReviewRepository,
-)
-from devflow_api.core.repositories.sync_run import SyncRunRepository
-from devflow_api.core.schemas.github import SyncResultResponse
 
 
 class GitHubSyncService:
     def __init__(
         self,
         conn_repo: GitHubConnectionRepository,
-        pr_repo: PullRequestRepository,
-        review_repo: PullRequestReviewRepository,
-        sync_run_repo: SyncRunRepository,
         cipher: TokenCipher | None,
         api_client: GitHubApiClient,
     ) -> None:
         self._conn_repo = conn_repo
-        self._pr_repo = pr_repo
-        self._review_repo = review_repo
-        self._sync_run_repo = sync_run_repo
         self._cipher = cipher
         self._api_client = api_client
 
@@ -124,100 +115,6 @@ class GitHubSyncService:
             )
         await self._conn_repo.delete(conn)
 
-    async def sync(self, *, user_id: uuid.UUID) -> SyncResultResponse:
-        """Fetch PRs authored by or assigned to the user, upsert locally.
-
-        Merges two GitHub API calls so both solo developers (who create PRs but
-        don't self-assign) and team members (who have PRs assigned for review)
-        see their activity.  Deduplication is by ``html_url``.
-        """
-        conn = await self._conn_repo.get_by_user_id(user_id)
-        if not conn:
-            raise AppError(
-                code="not_connected",
-                message="GitHub account is not connected.",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-        token = self._require_cipher().decrypt(conn.access_token_encrypted)
-        run = await self._sync_run_repo.create(user_id=user_id)
-        prs_synced = 0
-        reviews_synced = 0
-        try:
-            assigned = await self._api_client.list_assigned_prs(token)
-            authored = await self._api_client.list_authored_prs(token)
-            seen_urls: set[str] = set()
-            prs: list[dict[str, Any]] = []
-            for pr_data in assigned + authored:
-                url = str(pr_data["html_url"])
-                if url not in seen_urls:
-                    seen_urls.add(url)
-                    prs.append(pr_data)
-            now = datetime.now(UTC)
-            for pr_data in prs:
-                owner_repo: str = pr_data["repository_url"].split("/repos/", 1)[-1]
-                owner, repo = owner_repo.split("/", 1)
-                pr_obj = await self._pr_repo.upsert(
-                    user_id=user_id,
-                    github_pr_id=int(pr_data["number"]),
-                    github_repo_full_name=owner_repo,
-                    number=int(pr_data["number"]),
-                    title=str(pr_data.get("title", "")),
-                    author_login=str(pr_data.get("user", {}).get("login", "")),
-                    state=_resolve_pr_state(pr_data),
-                    created_at_github=_parse_dt(str(pr_data["created_at"])),
-                    merged_at=_parse_dt_opt(
-                        pr_data.get("pull_request", {}).get("merged_at")
-                    ),
-                    closed_at=_parse_dt_opt(pr_data.get("closed_at")),
-                    html_url=str(pr_data["html_url"]),
-                    last_synced_at=now,
-                )
-                prs_synced += 1
-
-                reviews = await self._api_client.list_pr_reviews(
-                    token, owner, repo, int(pr_data["number"])
-                )
-                min_submitted: datetime | None = None
-                for rev in reviews:
-                    submitted_at = _parse_dt(str(rev["submitted_at"]))
-                    await self._review_repo.upsert(
-                        pull_request_id=pr_obj.id,
-                        github_review_id=int(rev["id"]),
-                        reviewer_login=str(rev.get("user", {}).get("login", "")),
-                        state=str(rev.get("state", "")).lower(),
-                        submitted_at=submitted_at,
-                    )
-                    reviews_synced += 1
-                    if min_submitted is None or submitted_at < min_submitted:
-                        min_submitted = submitted_at
-                if min_submitted is not None:
-                    await self._pr_repo.set_first_review_at(pr_obj, min_submitted)
-        except Exception as exc:
-            await self._sync_run_repo.fail(run, error_message=str(exc))
-            raise
-        await self._sync_run_repo.complete(
-            run, prs_synced=prs_synced, reviews_synced=reviews_synced
-        )
-        return SyncResultResponse(prs_synced=prs_synced, reviews_synced=reviews_synced)
-
-
-def _parse_dt(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _parse_dt_opt(value: object) -> datetime | None:
-    if not value or not isinstance(value, str):
-        return None
-    return _parse_dt(value)
-
-
-def _resolve_pr_state(pr_data: dict[str, object]) -> str:
-    pr_extra = pr_data.get("pull_request", {})
-    if isinstance(pr_extra, dict) and pr_extra.get("merged_at"):
-        return "merged"
-    state = str(pr_data.get("state", "open"))
-    return state
-
 
 def get_github_sync_service(
     session: AsyncSession = Depends(get_session),
@@ -227,9 +124,6 @@ def get_github_sync_service(
     cipher = TokenCipher(key) if key else None
     return GitHubSyncService(
         conn_repo=GitHubConnectionRepository(session),
-        pr_repo=PullRequestRepository(session),
-        review_repo=PullRequestReviewRepository(session),
-        sync_run_repo=SyncRunRepository(session),
         cipher=cipher,
         api_client=GitHubApiClient(),
     )

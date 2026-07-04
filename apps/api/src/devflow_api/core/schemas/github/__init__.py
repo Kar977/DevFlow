@@ -80,3 +80,20 @@ class RepositoryListResponse(BaseModel):
 
 class RepositoryUpdateRequest(BaseModel):
     tracked: bool
+
+
+class SyncRunResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    repos_synced: int
+    prs_synced: int
+    reviews_synced: int
+    error_message: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class SyncRunListResponse(BaseModel):
+    items: list[SyncRunResponse]

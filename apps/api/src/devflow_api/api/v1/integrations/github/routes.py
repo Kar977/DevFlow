@@ -14,6 +14,8 @@ from devflow_api.core.schemas.github import (
     RefreshReposResponse,
     SetupRequest,
     SyncResultResponse,
+    SyncRunListResponse,
+    SyncRunResponse,
 )
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.github_app import (
@@ -23,6 +25,10 @@ from devflow_api.core.services.github_app import (
 from devflow_api.core.services.github_sync import (
     GitHubSyncService,
     get_github_sync_service,
+)
+from devflow_api.core.services.org_sync import (
+    OrgSyncService,
+    get_org_sync_service,
 )
 
 router = APIRouter()
@@ -178,13 +184,30 @@ async def disconnect(
 @router.post(
     "/sync",
     response_model=SyncResultResponse,
-    summary="Sync assigned GitHub PRs and their reviews for the current user",
+    summary="Sync PRs of all tracked repositories of an organization",
 )
 async def sync(
+    organization_id: uuid.UUID = Query(...),
     subject: AuthenticatedSubject = Depends(get_current_subject),
-    service: GitHubSyncService = Depends(get_github_sync_service),
+    service: OrgSyncService = Depends(get_org_sync_service),
 ) -> SyncResultResponse:
-    return await service.sync(user_id=subject.user_id)
+    return await service.sync(org_id=organization_id, user_id=subject.user_id)
+
+
+@router.get(
+    "/sync-runs",
+    response_model=SyncRunListResponse,
+    summary="List recent sync runs of an organization",
+)
+async def sync_runs(
+    organization_id: uuid.UUID = Query(...),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: OrgSyncService = Depends(get_org_sync_service),
+) -> SyncRunListResponse:
+    runs = await service.list_runs(org_id=organization_id, user_id=subject.user_id)
+    return SyncRunListResponse(
+        items=[SyncRunResponse.model_validate(run) for run in runs]
+    )
 
 
 _WEBHOOK_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB

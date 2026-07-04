@@ -1,9 +1,16 @@
-"""PullRequest ORM model — GitHub PR synced per user."""
+"""PullRequest ORM model — GitHub PR synced per tracked repository."""
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from devflow_api.core.database import Base
@@ -13,11 +20,11 @@ from devflow_api.core.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 class PullRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "pull_requests"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    github_pr_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    github_repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # GitHub's numeric PR id (not the per-repo PR number).
+    github_pr_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     author_login: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -34,5 +41,7 @@ class PullRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("user_id", "github_pr_id", name="uq_pull_requests_user_pr"),
+        UniqueConstraint(
+            "repository_id", "github_pr_id", name="uq_pull_requests_repo_pr"
+        ),
     )

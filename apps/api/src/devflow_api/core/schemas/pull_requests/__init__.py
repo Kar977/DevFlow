@@ -17,8 +17,9 @@ class ReviewResponse(BaseModel):
 
 class PullRequestResponse(BaseModel):
     id: uuid.UUID
+    repository_id: uuid.UUID
+    repository_full_name: str
     github_pr_id: int
-    github_repo_full_name: str
     number: int
     title: str
     author_login: str

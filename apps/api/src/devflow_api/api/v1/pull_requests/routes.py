@@ -1,4 +1,4 @@
-"""Pull request routes — GitHub PR analytics."""
+"""Pull request routes — org-scoped GitHub PR analytics."""
 
 import uuid
 
@@ -20,22 +20,24 @@ router = APIRouter()
 @router.get(
     "",
     response_model=PullRequestListResponse,
-    summary="List pull requests for the current user",
+    summary="List pull requests of an organization",
 )
 async def list_pull_requests(
+    organization_id: uuid.UUID = Query(...),
+    repository_id: uuid.UUID | None = Query(default=None),
     state: str | None = None,
     author_login: str | None = None,
-    repo: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: PullRequestService = Depends(get_pull_request_service),
 ) -> PullRequestListResponse:
     return await service.list_pull_requests(
+        org_id=organization_id,
         user_id=subject.user_id,
+        repository_id=repository_id,
         state=state,
         author_login=author_login,
-        repo=repo,
         limit=limit,
         offset=offset,
     )
@@ -48,7 +50,10 @@ async def list_pull_requests(
 )
 async def get_pull_request(
     pr_id: uuid.UUID,
+    organization_id: uuid.UUID = Query(...),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: PullRequestService = Depends(get_pull_request_service),
 ) -> PullRequestDetailResponse:
-    return await service.get_pull_request(pr_id=pr_id, user_id=subject.user_id)
+    return await service.get_pull_request(
+        pr_id=pr_id, org_id=organization_id, user_id=subject.user_id
+    )
