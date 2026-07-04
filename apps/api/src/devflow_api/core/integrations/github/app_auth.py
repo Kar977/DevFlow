@@ -43,6 +43,12 @@ class InstallationTokenProvider:
         self._private_key_pem = private_key_pem
         self._cache: dict[int, tuple[str, datetime]] = {}
 
+    def mint_app_jwt(self) -> str:
+        """Return a fresh app JWT for App-level API calls."""
+        return create_app_jwt(
+            app_id=self._app_id, private_key_pem=self._private_key_pem
+        )
+
     async def get_token(self, installation_id: int) -> str:
         """Return a valid installation access token, minting when needed."""
         cached = self._cache.get(installation_id)

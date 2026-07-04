@@ -12,8 +12,6 @@ from devflow_api.core.schemas.pull_requests import (
     PullRequestDetailResponse,
     PullRequestListResponse,
     PullRequestResponse,
-    RepositoryListResponse,
-    RepositoryResponse,
     ReviewResponse,
 )
 
@@ -60,14 +58,6 @@ class PullRequestService:
         reviews = [ReviewResponse.model_validate(r) for r in reviews_orm]
         pr_resp = PullRequestResponse.model_validate(pr)
         return PullRequestDetailResponse(**pr_resp.model_dump(), reviews=reviews)
-
-    async def list_repositories(self, *, user_id: uuid.UUID) -> RepositoryListResponse:
-        repos = await self._pr_repo.list_repos_for_user(user_id)
-        items: list[RepositoryResponse] = []
-        for full_name in repos:
-            count = await self._pr_repo.count_for_user(user_id, repo=full_name)
-            items.append(RepositoryResponse(full_name=full_name, pr_count=count))
-        return RepositoryListResponse(items=items)
 
 
 def get_pull_request_service(

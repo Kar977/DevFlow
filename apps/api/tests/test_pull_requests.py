@@ -246,26 +246,5 @@ def test_get_pull_request_other_user_returns_404(
     assert response.status_code == 404
 
 
-# ---------------------------------------------------------------------------
-# Repository list
-# ---------------------------------------------------------------------------
-
-
-def test_list_repositories_empty(client: TestClient) -> None:
-    response = client.get("/api/v1/repositories")
-    assert response.status_code == 200
-    assert response.json()["items"] == []
-
-
-def test_list_repositories_returns_aggregated(
-    client: TestClient, user_id: uuid.UUID, pr_repo: FakePRRepo
-) -> None:
-    pr_repo.seed(_make_pr(user_id, repo="owner/alpha"))
-    pr_repo.seed(_make_pr(user_id, repo="owner/alpha"))
-    pr_repo.seed(_make_pr(user_id, repo="owner/beta"))
-    response = client.get("/api/v1/repositories")
-    assert response.status_code == 200
-    items = response.json()["items"]
-    assert len(items) == 2
-    alpha = next(i for i in items if i["full_name"] == "owner/alpha")
-    assert alpha["pr_count"] == 2
+# Repository listing moved to the GitHub App domain — see
+# test_github_app_routes.py and test_github_app_service.py.

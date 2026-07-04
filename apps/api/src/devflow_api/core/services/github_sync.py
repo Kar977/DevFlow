@@ -1,6 +1,5 @@
 """GitHubSyncService — OAuth connection, sync, and webhook handling."""
 
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -19,7 +18,6 @@ from devflow_api.core.integrations.github.oauth import (
     exchange_code_for_token,
     verify_oauth_state,
 )
-from devflow_api.core.integrations.github.webhooks import verify_signature
 from devflow_api.core.models.github_connection import GitHubConnection
 from devflow_api.core.repositories.github_connection import (
     GitHubConnectionRepository,
@@ -201,34 +199,6 @@ class GitHubSyncService:
             run, prs_synced=prs_synced, reviews_synced=reviews_synced
         )
         return SyncResultResponse(prs_synced=prs_synced, reviews_synced=reviews_synced)
-
-    async def handle_webhook(
-        self,
-        *,
-        signature: str,
-        raw_body: bytes,
-    ) -> None:
-        settings = get_settings()
-        if not settings.github_webhook_secret:
-            raise AppError(
-                code="webhook_not_configured",
-                message="Webhook secret is not configured.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        try:
-            verify_signature(
-                payload_bytes=raw_body,
-                secret=settings.github_webhook_secret,
-                signature_header=signature,
-            )
-        except ValueError as exc:
-            raise AppError(
-                code="invalid_signature",
-                message=str(exc),
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ) from exc
-
-        _payload: dict[str, object] = json.loads(raw_body)
 
 
 def _parse_dt(value: str) -> datetime:

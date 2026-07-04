@@ -2,7 +2,6 @@
 
 import hashlib
 import hmac
-import json
 import uuid
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -646,36 +645,8 @@ def test_sync_without_encryption_key_returns_503(
     assert response.json()["error"]["code"] == "github_not_configured"
 
 
-def test_webhook_valid_signature_returns_204(client: TestClient) -> None:
-    payload = {"action": "opened"}
-    body = json.dumps(payload).encode()
-    sig = (
-        "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-    )
-    response = client.post(
-        "/api/v1/integrations/github/webhooks",
-        content=body,
-        headers={
-            "X-Hub-Signature-256": sig,
-            "X-GitHub-Event": "issues",
-            "Content-Type": "application/json",
-        },
-    )
-    assert response.status_code == 204
-
-
-def test_webhook_invalid_signature_returns_401(client: TestClient) -> None:
-    body = json.dumps({"action": "opened"}).encode()
-    response = client.post(
-        "/api/v1/integrations/github/webhooks",
-        content=body,
-        headers={
-            "X-Hub-Signature-256": "sha256=" + "0" * 64,
-            "X-GitHub-Event": "issues",
-            "Content-Type": "application/json",
-        },
-    )
-    assert response.status_code == 401
+# Webhook signature handling moved to GitHubAppService — see
+# test_github_app_service.py and test_github_app_routes.py.
 
 
 def test_webhook_oversized_body_returns_413(client: TestClient) -> None:

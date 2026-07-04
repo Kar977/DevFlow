@@ -118,6 +118,12 @@ async def test_token_provider_refreshes_near_expiry() -> None:
     assert api.calls == 2
 
 
+def test_token_provider_mints_decodable_app_jwt() -> None:
+    provider = _make_provider(FakeAppApiClient())
+    decoded = jwt.decode(provider.mint_app_jwt(), PUBLIC_KEY_PEM, algorithms=["RS256"])
+    assert decoded["iss"] == "12345"
+
+
 async def test_token_provider_requires_credentials() -> None:
     api = FakeAppApiClient()
     provider = InstallationTokenProvider(

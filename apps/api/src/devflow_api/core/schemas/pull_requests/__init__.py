@@ -40,12 +40,3 @@ class PullRequestDetailResponse(PullRequestResponse):
 class PullRequestListResponse(BaseModel):
     items: list[PullRequestResponse]
     total: int
-
-
-class RepositoryResponse(BaseModel):
-    full_name: str
-    pr_count: int
-
-
-class RepositoryListResponse(BaseModel):
-    items: list[RepositoryResponse]
