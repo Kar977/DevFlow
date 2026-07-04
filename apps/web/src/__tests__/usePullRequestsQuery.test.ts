@@ -9,6 +9,8 @@ import {
 } from "@/features/pull-requests/hooks/usePullRequestsQuery";
 import React from "react";
 
+const ORG_ID = "org-1";
+
 function wrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: React.ReactNode }) =>
@@ -17,8 +19,9 @@ function wrapper() {
 
 const samplePR = {
   id: "pr-1",
-  github_pr_id: 42,
-  github_repo_full_name: "owner/repo",
+  repository_id: "repo-1",
+  repository_full_name: "owner/repo",
+  github_pr_id: 987654,
   number: 42,
   title: "Fix: something",
   author_login: "octocat",
@@ -32,18 +35,26 @@ const samplePR = {
 };
 
 describe("usePullRequestsQuery", () => {
-  it("fetches pull requests list", async () => {
+  it("fetches pull requests list with organization scope", async () => {
+    let capturedOrgId: string | null = null;
     server.use(
-      http.get("*/pull-requests", () =>
-        HttpResponse.json({ items: [samplePR], total: 1 })
-      )
+      http.get("*/pull-requests", ({ request }) => {
+        capturedOrgId = new URL(request.url).searchParams.get(
+          "organization_id"
+        );
+        return HttpResponse.json({ items: [samplePR], total: 1 });
+      })
     );
-    const { result } = renderHook(() => usePullRequestsQuery(), {
+    const { result } = renderHook(() => usePullRequestsQuery(ORG_ID), {
       wrapper: wrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.items).toHaveLength(1);
     expect(result.current.data?.items[0]?.title).toBe("Fix: something");
+    expect(result.current.data?.items[0]?.repository_full_name).toBe(
+      "owner/repo"
+    );
+    expect(capturedOrgId).toBe(ORG_ID);
   });
 
   it("returns empty list when no PRs", async () => {
@@ -52,11 +63,18 @@ describe("usePullRequestsQuery", () => {
         HttpResponse.json({ items: [], total: 0 })
       )
     );
-    const { result } = renderHook(() => usePullRequestsQuery(), {
+    const { result } = renderHook(() => usePullRequestsQuery(ORG_ID), {
       wrapper: wrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.items).toHaveLength(0);
+  });
+
+  it("is disabled without an active organization", () => {
+    const { result } = renderHook(() => usePullRequestsQuery(null), {
+      wrapper: wrapper(),
+    });
+    expect(result.current.fetchStatus).toBe("idle");
   });
 });
 
@@ -76,15 +94,16 @@ describe("usePullRequestDetailQuery", () => {
     server.use(
       http.get("*/pull-requests/pr-1", () => HttpResponse.json(detail))
     );
-    const { result } = renderHook(() => usePullRequestDetailQuery("pr-1"), {
-      wrapper: wrapper(),
-    });
+    const { result } = renderHook(
+      () => usePullRequestDetailQuery(ORG_ID, "pr-1"),
+      { wrapper: wrapper() }
+    );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.reviews).toHaveLength(1);
   });
 
   it("is disabled when no prId", () => {
-    const { result } = renderHook(() => usePullRequestDetailQuery(""), {
+    const { result } = renderHook(() => usePullRequestDetailQuery(ORG_ID, ""), {
       wrapper: wrapper(),
     });
     expect(result.current.fetchStatus).toBe("idle");

@@ -6,6 +6,7 @@ import { RegisterPage } from "@/features/auth/pages/RegisterPage";
 import { DashboardPage } from "@/features/dashboard/pages/DashboardPage";
 import { AppShell } from "@/shared/ui/AppShell";
 import { GitHubCallbackPage } from "@/features/github/pages/GitHubCallbackPage";
+import { GitHubSetupPage } from "@/features/github/pages/GitHubSetupPage";
 
 const TaskListPage = lazy(() =>
   import("@/features/tasks/pages/TaskListPage").then((m) => ({ default: m.TaskListPage }))
@@ -57,6 +58,7 @@ export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "/integrations/github/callback", element: <GitHubCallbackPage /> },
+  { path: "/integrations/github/setup", element: <GitHubSetupPage /> },
   {
     path: "/",
     element: <ProtectedRoute />,

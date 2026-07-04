@@ -3,8 +3,9 @@ import { apiClient } from "@/shared/api/client";
 
 export interface PullRequest {
   id: string;
+  repository_id: string;
+  repository_full_name: string;
   github_pr_id: number;
-  github_repo_full_name: string;
   number: number;
   title: string;
   author_login: string;
@@ -31,34 +32,44 @@ export interface PullRequestDetail extends PullRequest {
 interface PRsParams {
   state?: string;
   author_login?: string;
-  repo?: string;
+  repository_id?: string;
   limit?: number;
   offset?: number;
 }
 
 export const prQueryKeys = {
   all: ["pull-requests"] as const,
-  list: (params: PRsParams) => [...prQueryKeys.all, "list", params] as const,
-  detail: (id: string) => [...prQueryKeys.all, "detail", id] as const,
+  list: (orgId: string, params: PRsParams) =>
+    [...prQueryKeys.all, "list", orgId, params] as const,
+  detail: (orgId: string, id: string) =>
+    [...prQueryKeys.all, "detail", orgId, id] as const,
 };
 
-export function usePullRequestsQuery(params: PRsParams = {}) {
+export function usePullRequestsQuery(
+  orgId: string | null,
+  params: PRsParams = {}
+) {
   return useQuery({
-    queryKey: prQueryKeys.list(params),
+    queryKey: prQueryKeys.list(orgId ?? "", params),
+    enabled: !!orgId,
     queryFn: () =>
       apiClient
-        .get("/pull-requests", { params })
+        .get("/pull-requests", {
+          params: { organization_id: orgId, ...params },
+        })
         .then((r) => r.data as { items: PullRequest[]; total: number }),
   });
 }
 
-export function usePullRequestDetailQuery(prId: string) {
+export function usePullRequestDetailQuery(orgId: string | null, prId: string) {
   return useQuery({
-    queryKey: prQueryKeys.detail(prId),
+    queryKey: prQueryKeys.detail(orgId ?? "", prId),
+    enabled: !!orgId && !!prId,
     queryFn: () =>
       apiClient
-        .get(`/pull-requests/${prId}`)
+        .get(`/pull-requests/${prId}`, {
+          params: { organization_id: orgId },
+        })
         .then((r) => r.data as PullRequestDetail),
-    enabled: !!prId,
   });
 }

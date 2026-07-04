@@ -1,6 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
 import { usePullRequestDetailQuery } from "../hooks/usePullRequestsQuery";
+import { useOrgStore } from "@/shared/store/orgStore";
 
 function stateBadge(state: string) {
   const color =
@@ -47,7 +48,12 @@ function fmtDate(iso: string | null): string {
 
 export function PullRequestDetailPage() {
   const { prId } = useParams<{ prId: string }>();
-  const { data: pr, isLoading, isError } = usePullRequestDetailQuery(prId ?? "");
+  const activeOrgId = useOrgStore((s) => s.activeOrgId);
+  const {
+    data: pr,
+    isLoading,
+    isError,
+  } = usePullRequestDetailQuery(activeOrgId, prId ?? "");
 
   if (isLoading) {
     return <div className="p-8 text-muted-foreground">Ładowanie...</div>;
@@ -77,7 +83,7 @@ export function PullRequestDetailPage() {
           <div>
             <h1 className="text-xl font-semibold">{pr.title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {pr.github_repo_full_name} #{pr.number} · autor: {pr.author_login}
+              {pr.repository_full_name} #{pr.number} · autor: {pr.author_login}
             </p>
           </div>
           <div className="flex items-center gap-2">
