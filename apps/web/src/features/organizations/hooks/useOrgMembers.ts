@@ -9,6 +9,11 @@ export interface MemberResponse {
   joined_at: string;
 }
 
+interface MemberListResponse {
+  items: MemberResponse[];
+  total: number;
+}
+
 const membersQueryKey = (orgId: string) =>
   ["organizations", orgId, "members"] as const;
 
@@ -18,7 +23,7 @@ export function useOrgMembersQuery(orgId: string | null) {
     enabled: !!orgId,
     queryFn: async (): Promise<MemberResponse[]> => {
       const res = await apiClient.get(`/organizations/${orgId}/members`);
-      return res.data as MemberResponse[];
+      return (res.data as MemberListResponse).items;
     },
   });
 }
