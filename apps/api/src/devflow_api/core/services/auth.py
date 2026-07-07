@@ -71,23 +71,38 @@ class AuthService:
         )
         return await self._issue_tokens(user.id)
 
-    async def refresh(self, *, refresh_token: str) -> str:
-        """Validate a refresh token and return a new access token."""
+    async def refresh(self, *, refresh_token: str) -> tuple[str, str]:
+        """Validate a refresh token, rotate it, and return (access, new refresh).
+
+        Rotation: the presented refresh token is revoked and a new one is
+        issued alongside the new access token, so each refresh token is
+        usable exactly once.
+
+        Reuse detection: if the presented token was already revoked (i.e. it
+        was already rotated away, or explicitly logged out), that is treated
+        as a signal the token may have been stolen — every active refresh
+        token for the user is revoked, forcing a fresh login everywhere.
+        """
         token_hash = hash_token(refresh_token)
         stored = await self._token_repo.get_by_hash(token_hash)
 
+        invalid_token_error = AppError(
+            code="invalid_refresh_token",
+            message="Refresh token is invalid or has expired.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+        if stored is None:
+            raise invalid_token_error
+
         now = datetime.now(UTC)
-        if (
-            stored is None
-            or stored.revoked_at is not None
-            or stored.expires_at.replace(tzinfo=UTC) < now
-        ):
-            raise AppError(
-                code="invalid_refresh_token",
-                message="Refresh token is invalid or has expired.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-        return create_access_token(str(stored.user_id))
+        if stored.revoked_at is not None:
+            await self._token_repo.revoke_all_for_user(stored.user_id, revoked_at=now)
+            raise invalid_token_error
+        if stored.expires_at.replace(tzinfo=UTC) < now:
+            raise invalid_token_error
+
+        await self._token_repo.revoke(stored, revoked_at=now)
+        return await self._issue_tokens(stored.user_id)
 
     async def logout(self, *, refresh_token: str) -> None:
         """Revoke the given refresh token."""

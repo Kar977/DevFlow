@@ -5,7 +5,6 @@ import uuid
 from fastapi import APIRouter, Depends, status
 
 from devflow_api.core.schemas.auth import (
-    AccessTokenResponse,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -59,16 +58,19 @@ async def login(
 
 @router.post(
     "/refresh",
-    response_model=AccessTokenResponse,
-    summary="Renew an access token using a refresh token",
+    response_model=TokenResponse,
+    summary="Rotate a refresh token and receive a new token pair",
 )
 async def refresh_token(
     body: RefreshRequest,
     service: AuthService = Depends(get_auth_service),
-) -> AccessTokenResponse:
-    access_token = await service.refresh(refresh_token=body.refresh_token)
-    return AccessTokenResponse(
+) -> TokenResponse:
+    access_token, new_refresh_token = await service.refresh(
+        refresh_token=body.refresh_token
+    )
+    return TokenResponse(
         access_token=access_token,
+        refresh_token=new_refresh_token,
         expires_in=AuthService.access_token_expires_in(),
     )
 
