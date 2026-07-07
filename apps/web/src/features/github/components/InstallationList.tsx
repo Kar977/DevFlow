@@ -10,6 +10,7 @@ interface Props {
   isInstalling: boolean;
   isDisconnecting: boolean;
   isRefreshing: boolean;
+  installError?: string | null;
 }
 
 export function InstallationList({
@@ -21,6 +22,7 @@ export function InstallationList({
   isInstalling,
   isDisconnecting,
   isRefreshing,
+  installError,
 }: Props) {
   return (
     <Card>
@@ -33,7 +35,9 @@ export function InstallationList({
         )}
       </CardHeader>
       <CardContent>
-        {installations.length === 0 ? (
+        {installError ? (
+          <p className="text-sm text-destructive">{installError}</p>
+        ) : installations.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Brak instalacji. Zainstaluj aplikację GitHub na koncie osobistym lub
             organizacji GitHub, aby podłączyć repozytoria.

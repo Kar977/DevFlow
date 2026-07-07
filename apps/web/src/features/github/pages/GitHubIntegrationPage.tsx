@@ -1,3 +1,4 @@
+import { isAxiosError } from "axios";
 import { useGitHubStatus } from "@/features/github/hooks/useGitHubStatus";
 import { useGitHubMutations } from "@/features/github/hooks/useGitHubMutations";
 import {
@@ -19,6 +20,27 @@ import { ConnectGitHubCard } from "@/features/github/components/ConnectGitHubCar
 import { InstallationList } from "@/features/github/components/InstallationList";
 import { RepoPicker } from "@/features/github/components/RepoPicker";
 import { SyncPanel } from "@/features/github/components/SyncPanel";
+
+const INSTALL_ERROR_MESSAGES_PL: Record<string, string> = {
+  github_app_not_configured:
+    "Integracja GitHub App nie jest skonfigurowana na serwerze. Skontaktuj się z administratorem, aby ją uzupełnić.",
+  forbidden:
+    "Nie masz uprawnień, aby zainstalować GitHub App. Wymagana jest rola właściciela lub administratora organizacji.",
+};
+
+function getInstallErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  if (isAxiosError(error)) {
+    const data = error.response?.data as
+      | { error?: { code?: string } }
+      | undefined;
+    const code = data?.error?.code;
+    if (code && code in INSTALL_ERROR_MESSAGES_PL) {
+      return INSTALL_ERROR_MESSAGES_PL[code];
+    }
+  }
+  return "Nie udało się rozpocząć instalacji GitHub App.";
+}
 
 export function GitHubIntegrationPage() {
   const activeOrgId = useOrgStore((s) => s.activeOrgId);
@@ -62,6 +84,7 @@ export function GitHubIntegrationPage() {
           isInstalling={installApp.isPending}
           isDisconnecting={disconnectInstallation.isPending}
           isRefreshing={refreshRepos.isPending}
+          installError={getInstallErrorMessage(installApp.error)}
         />
         {hasInstallation && (
           <>
