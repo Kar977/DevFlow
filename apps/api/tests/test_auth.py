@@ -275,7 +275,7 @@ def test_login_unknown_email_returns_401(auth_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_refresh_returns_new_access_token(auth_client: TestClient) -> None:
+def test_refresh_returns_new_access_and_refresh_token(auth_client: TestClient) -> None:
     auth_client.post(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
@@ -291,7 +291,68 @@ def test_refresh_returns_new_access_token(auth_client: TestClient) -> None:
         json={"refresh_token": refresh_token},
     )
     assert resp.status_code == 200
-    assert "access_token" in resp.json()
+    body = resp.json()
+    assert "access_token" in body
+    assert "refresh_token" in body
+    # Rotation: a fresh refresh token is issued, distinct from the one used.
+    assert body["refresh_token"] != refresh_token
+
+
+def test_refresh_rotates_and_old_token_is_rejected(auth_client: TestClient) -> None:
+    auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    login = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    old_refresh_token = login.json()["refresh_token"]
+
+    first = auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert first.status_code == 200
+
+    # Re-using the now-rotated-away token must fail.
+    second = auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert second.status_code == 401
+
+
+def test_refresh_reuse_detection_revokes_all_tokens(auth_client: TestClient) -> None:
+    auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    login = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    old_refresh_token = login.json()["refresh_token"]
+
+    first = auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    new_refresh_token = first.json()["refresh_token"]
+
+    # Reusing the already-rotated token is treated as a theft signal: it
+    # must revoke the whole token family, including the freshly issued one.
+    reuse = auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert reuse.status_code == 401
+
+    blocked = auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": new_refresh_token},
+    )
+    assert blocked.status_code == 401
 
 
 def test_refresh_invalid_token_returns_401(auth_client: TestClient) -> None:
