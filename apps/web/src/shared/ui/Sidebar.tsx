@@ -9,6 +9,7 @@ import {
   User,
   GitPullRequest,
   GitBranch,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useTimerStore } from "@/shared/store/timerStore";
@@ -26,6 +27,7 @@ const navItems = [
 const settingsItems = [
   { to: "/settings/github", icon: Github, label: "GitHub" },
   { to: "/settings/profile", icon: User, label: "Profil" },
+  { to: "/settings/organization", icon: Building2, label: "Organizacja" },
 ];
 
 function NavItem({ to, icon: Icon, label }: { to: string; icon: React.ElementType; label: string }) {

@@ -14,7 +14,10 @@ import { useAuthStore } from "@/shared/store/authStore";
 const mockUser = {
   id: "user-1",
   email: "test@example.com",
-  name: "Test User",
+  full_name: "Test User",
+  avatar_url: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
 };
 
 // In node env, window doesn't exist — we need a global location mock

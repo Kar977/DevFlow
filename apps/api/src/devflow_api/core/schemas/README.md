@@ -60,10 +60,9 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int  # seconds
 
-class AccessTokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
+# POST /auth/refresh rotates the refresh token, so it also returns
+# TokenResponse (new access_token + new refresh_token) rather than a
+# access-token-only response.
 
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

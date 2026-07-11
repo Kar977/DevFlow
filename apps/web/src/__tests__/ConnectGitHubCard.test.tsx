@@ -7,7 +7,7 @@ describe("ConnectGitHubCard", () => {
   it("shows connect button when not connected", () => {
     render(
       <ConnectGitHubCard
-        status={{ connected: false }}
+        status={{ connected: false, github_login: null, github_avatar_url: null }}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         isConnecting={false}
@@ -36,7 +36,7 @@ describe("ConnectGitHubCard", () => {
     const onConnect = vi.fn();
     render(
       <ConnectGitHubCard
-        status={{ connected: false }}
+        status={{ connected: false, github_login: null, github_avatar_url: null }}
         onConnect={onConnect}
         onDisconnect={vi.fn()}
         isConnecting={false}

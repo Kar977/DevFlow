@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { usePullRequestsQuery } from "../hooks/usePullRequestsQuery";
 import { useRepositoriesQuery } from "@/features/repositories/hooks/useRepositoriesQuery";
-import { Badge } from "@/shared/ui/badge";
+import { useOrgStore } from "@/shared/store/orgStore";
 
 function stateBadge(state: string) {
   const color =
@@ -22,14 +22,18 @@ function ageLabel(createdAt: string): string {
 }
 
 export function PullRequestListPage() {
+  const activeOrgId = useOrgStore((s) => s.activeOrgId);
+  const [searchParams] = useSearchParams();
   const [state, setState] = useState<string>("");
-  const [repo, setRepo] = useState<string>("");
+  const [repositoryId, setRepositoryId] = useState<string>(
+    searchParams.get("repository_id") ?? ""
+  );
 
-  const { data, isLoading, isError } = usePullRequestsQuery({
+  const { data, isLoading, isError } = usePullRequestsQuery(activeOrgId, {
     state: state || undefined,
-    repo: repo || undefined,
+    repository_id: repositoryId || undefined,
   });
-  const { data: reposData } = useRepositoriesQuery();
+  const { data: reposData } = useRepositoriesQuery(activeOrgId);
 
   if (isLoading) {
     return <div className="p-8 text-muted-foreground">Ładowanie...</div>;
@@ -56,13 +60,13 @@ export function PullRequestListPage() {
         </select>
 
         <select
-          value={repo}
-          onChange={(e) => setRepo(e.target.value)}
+          value={repositoryId}
+          onChange={(e) => setRepositoryId(e.target.value)}
           className="rounded border border-border bg-background px-3 py-1.5 text-sm"
         >
           <option value="">Wszystkie repozytoria</option>
           {reposData?.items.map((r) => (
-            <option key={r.full_name} value={r.full_name}>
+            <option key={r.id} value={r.id}>
               {r.full_name}
             </option>
           ))}
@@ -98,7 +102,7 @@ export function PullRequestListPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{pr.author_login}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{pr.github_repo_full_name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{pr.repository_full_name}</td>
                   <td className="px-4 py-3">{stateBadge(pr.state)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{ageLabel(pr.created_at_github)}</td>
                   <td className="px-4 py-3 text-muted-foreground">

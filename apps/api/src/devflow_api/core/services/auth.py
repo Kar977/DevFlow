@@ -10,6 +10,7 @@ from devflow_api.core.config import get_settings
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
 from devflow_api.core.models.user import User
+from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.refresh_token import RefreshTokenRepository
 from devflow_api.core.repositories.user import UserRepository
 from devflow_api.core.security import (
@@ -19,6 +20,7 @@ from devflow_api.core.security import (
     hash_token,
     verify_password,
 )
+from devflow_api.core.services.organization import OrganizationService
 
 
 class AuthService:
@@ -26,9 +28,11 @@ class AuthService:
         self,
         user_repo: UserRepository,
         token_repo: RefreshTokenRepository,
+        org_service: OrganizationService,
     ) -> None:
         self._user_repo = user_repo
         self._token_repo = token_repo
+        self._org_service = org_service
 
     async def register(
         self,
@@ -58,25 +62,47 @@ class AuthService:
                 message="Invalid email or password.",
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
+        # Idempotently ensure the user has at least a personal workspace.
+        # Covers both new registrations and existing accounts that pre-date
+        # automatic org creation.
+        display_name = user.full_name or user.email.split("@")[0]
+        await self._org_service.ensure_personal_organization(
+            user_id=user.id, display_name=display_name
+        )
         return await self._issue_tokens(user.id)
 
-    async def refresh(self, *, refresh_token: str) -> str:
-        """Validate a refresh token and return a new access token."""
+    async def refresh(self, *, refresh_token: str) -> tuple[str, str]:
+        """Validate a refresh token, rotate it, and return (access, new refresh).
+
+        Rotation: the presented refresh token is revoked and a new one is
+        issued alongside the new access token, so each refresh token is
+        usable exactly once.
+
+        Reuse detection: if the presented token was already revoked (i.e. it
+        was already rotated away, or explicitly logged out), that is treated
+        as a signal the token may have been stolen — every active refresh
+        token for the user is revoked, forcing a fresh login everywhere.
+        """
         token_hash = hash_token(refresh_token)
         stored = await self._token_repo.get_by_hash(token_hash)
 
+        invalid_token_error = AppError(
+            code="invalid_refresh_token",
+            message="Refresh token is invalid or has expired.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+        if stored is None:
+            raise invalid_token_error
+
         now = datetime.now(UTC)
-        if (
-            stored is None
-            or stored.revoked_at is not None
-            or stored.expires_at.replace(tzinfo=UTC) < now
-        ):
-            raise AppError(
-                code="invalid_refresh_token",
-                message="Refresh token is invalid or has expired.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-        return create_access_token(str(stored.user_id))
+        if stored.revoked_at is not None:
+            await self._token_repo.revoke_all_for_user(stored.user_id, revoked_at=now)
+            raise invalid_token_error
+        if stored.expires_at.replace(tzinfo=UTC) < now:
+            raise invalid_token_error
+
+        await self._token_repo.revoke(stored, revoked_at=now)
+        return await self._issue_tokens(stored.user_id)
 
     async def logout(self, *, refresh_token: str) -> None:
         """Revoke the given refresh token."""
@@ -136,4 +162,8 @@ def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthServic
     return AuthService(
         user_repo=UserRepository(session),
         token_repo=RefreshTokenRepository(session),
+        org_service=OrganizationService(
+            org_repo=OrganizationRepository(session),
+            user_repo=UserRepository(session),
+        ),
     )

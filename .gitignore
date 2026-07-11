@@ -19,6 +19,7 @@ venv/
 .env
 .env.*
 !.env.example
+devflow-local-gh-app*
 
 # IDEs and OS files
 .idea/

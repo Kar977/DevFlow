@@ -47,9 +47,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "user_id", "github_pr_id", name="uq_pull_requests_user_pr"
-        ),
+        sa.UniqueConstraint("user_id", "github_pr_id", name="uq_pull_requests_user_pr"),
     )
     op.create_index("ix_pull_requests_user_id", "pull_requests", ["user_id"])
 

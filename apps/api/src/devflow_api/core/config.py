@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     # Shared secret used to verify GitHub webhook HMAC-SHA256 signatures
     github_webhook_secret: str = ""
 
+    # GitHub App (repository access via installations). The private key is a
+    # PEM string; single-line env values may escape newlines as "\n".
+    github_app_id: str = ""
+    github_app_slug: str = ""
+    github_app_private_key: str = ""
+
+    @property
+    def github_app_private_key_pem(self) -> str:
+        """Return the private key with escaped newlines normalized."""
+        return self.github_app_private_key.replace("\\n", "\n")
+
     # Redis cache for metrics endpoints (empty = use in-memory cache)
     redis_url: str = ""
     metrics_cache_ttl_seconds: int = 60
@@ -85,6 +96,16 @@ class Settings(BaseSettings):
                     "github_token_encryption_key is required "
                     "when github_client_id is set"
                 )
+
+        # GitHub App secrets — required when the App integration is enabled
+        if self.github_app_id:
+            for field_name in (
+                "github_app_slug",
+                "github_app_private_key",
+                "github_webhook_secret",
+            ):
+                if not getattr(self, field_name):
+                    errors.append(f"{field_name} is required when github_app_id is set")
 
         # Localhost in CORS origins signals a local-only configuration
         for origin in self.cors_origins:

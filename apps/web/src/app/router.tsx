@@ -6,6 +6,7 @@ import { RegisterPage } from "@/features/auth/pages/RegisterPage";
 import { DashboardPage } from "@/features/dashboard/pages/DashboardPage";
 import { AppShell } from "@/shared/ui/AppShell";
 import { GitHubCallbackPage } from "@/features/github/pages/GitHubCallbackPage";
+import { GitHubSetupPage } from "@/features/github/pages/GitHubSetupPage";
 
 const TaskListPage = lazy(() =>
   import("@/features/tasks/pages/TaskListPage").then((m) => ({ default: m.TaskListPage }))
@@ -37,6 +38,9 @@ const PullRequestDetailPage = lazy(() =>
 const RepositoryListPage = lazy(() =>
   import("@/features/repositories/pages/RepositoryListPage").then((m) => ({ default: m.RepositoryListPage }))
 );
+const OrganizationSettingsPage = lazy(() =>
+  import("@/features/organizations/pages/OrganizationSettingsPage").then((m) => ({ default: m.OrganizationSettingsPage }))
+);
 
 export function ProtectedRoute() {
   const token = useAuthStore((s) => s.accessToken);
@@ -54,6 +58,7 @@ export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
   { path: "/integrations/github/callback", element: <GitHubCallbackPage /> },
+  { path: "/integrations/github/setup", element: <GitHubSetupPage /> },
   {
     path: "/",
     element: <ProtectedRoute />,
@@ -70,6 +75,7 @@ export const router = createBrowserRouter([
       { path: "reports", element: <ReportListPage /> },
       { path: "settings/github", element: <GitHubIntegrationPage /> },
       { path: "settings/profile", element: <ProfilePage /> },
+      { path: "settings/organization", element: <OrganizationSettingsPage /> },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },

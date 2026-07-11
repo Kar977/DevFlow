@@ -6,9 +6,11 @@ export function useGitHubMutations() {
 
   const authorize = useMutation({
     mutationFn: () =>
-      apiClient.post("/integrations/github/authorize").then((r) => r.data as { url: string }),
-    onSuccess: ({ url }) => {
-      window.location.href = url;
+      apiClient
+        .post("/integrations/github/authorize")
+        .then((r) => r.data as { authorize_url: string }),
+    onSuccess: ({ authorize_url }) => {
+      window.location.href = authorize_url;
     },
   });
 
@@ -17,23 +19,12 @@ export function useGitHubMutations() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["github"] }),
   });
 
-  const sync = useMutation({
-    mutationFn: (projectId: string) =>
-      apiClient
-        .post("/integrations/github/sync", { project_id: projectId })
-        .then((r) => r.data as { tasks_created: number; tasks_updated: number }),
-  });
-
   return {
     authorize: authorize.mutate,
     disconnect: disconnect.mutate,
-    sync: sync.mutate,
-    syncResult: sync.data,
-    isSyncing: sync.isPending,
     isAuthorizing: authorize.isPending,
     isDisconnecting: disconnect.isPending,
     authorizeError: authorize.error,
     disconnectError: disconnect.error,
-    syncError: sync.error,
   };
 }

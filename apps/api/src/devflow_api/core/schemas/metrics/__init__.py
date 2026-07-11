@@ -81,3 +81,13 @@ class PRDashboardResponse(BaseModel):
     review_velocity: float | None
     weekly_throughput: int
     review_ratio: float | None
+
+
+class PRDashboardMemberResponse(BaseModel):
+    user_id: uuid.UUID
+    display_name: str
+    github_login: str | None
+
+
+class PRDashboardMembersResponse(BaseModel):
+    items: list[PRDashboardMemberResponse]

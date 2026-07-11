@@ -3,11 +3,12 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from devflow_api.core.schemas.metrics import (
     CompletionRateResponse,
     EstimationAccuracyResponse,
+    PRDashboardMembersResponse,
     PRDashboardResponse,
     ProjectMetricsResponse,
     StreakResponse,
@@ -123,10 +124,29 @@ async def get_project_metrics(
 @router.get(
     "/pr-dashboard",
     response_model=PRDashboardResponse,
-    summary="GitHub PR-flow KPI dashboard",
+    summary="GitHub PR-flow KPI dashboard for an organization",
 )
 async def get_pr_dashboard(
+    organization_id: uuid.UUID = Query(...),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: PRMetricsService = Depends(get_pr_metrics_service),
 ) -> PRDashboardResponse:
-    return await service.get_pr_dashboard(user_id=subject.user_id)
+    return await service.get_pr_dashboard(
+        org_id=organization_id,
+        user_id=subject.user_id,
+        member_user_id=member_user_id,
+    )
+
+
+@router.get(
+    "/pr-dashboard/members",
+    response_model=PRDashboardMembersResponse,
+    summary="Org members with GitHub logins for the PR dashboard filter",
+)
+async def get_pr_dashboard_members(
+    organization_id: uuid.UUID = Query(...),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: PRMetricsService = Depends(get_pr_metrics_service),
+) -> PRDashboardMembersResponse:
+    return await service.list_members(org_id=organization_id, user_id=subject.user_id)
