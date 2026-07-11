@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Trash2 } from "lucide-react";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from "@/shared/ui";
 import { useOrgStore } from "@/shared/store/orgStore";
+import { useAuthStore } from "@/shared/store/authStore";
 import { useOrgsQuery } from "@/features/organizations/hooks/useOrgsQuery";
 import {
   useOrgMembersQuery,
@@ -20,6 +21,7 @@ type InviteData = z.infer<typeof InviteSchema>;
 
 export function OrganizationSettingsPage() {
   const { activeOrgId } = useOrgStore();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const { data: orgsData } = useOrgsQuery();
   const { data: members, isLoading } = useOrgMembersQuery(activeOrgId);
   const inviteMember = useInviteMember(activeOrgId ?? "");
@@ -28,6 +30,7 @@ export function OrganizationSettingsPage() {
   const [inviteError, setInviteError] = useState<string | null>(null);
 
   const activeOrg = orgsData?.items.find((o) => o.id === activeOrgId);
+  const myRole = members?.find((m) => m.user_id === currentUserId)?.role;
 
   const {
     register,
@@ -108,7 +111,7 @@ export function OrganizationSettingsPage() {
               >
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>
-                <option value="owner">Owner</option>
+                {myRole === "owner" && <option value="owner">Owner</option>}
               </select>
             </div>
             {inviteError && (

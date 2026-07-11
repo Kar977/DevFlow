@@ -145,6 +145,12 @@ class OrganizationService:
                 message="Only owners and admins can invite members.",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
+        if role == "owner" and inviter_member.role != "owner":
+            raise AppError(
+                code="forbidden",
+                message="Only owners can grant the owner role.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
         target_user = await self._user_repo.get_by_email(email)
         if not target_user:
             raise AppError(
