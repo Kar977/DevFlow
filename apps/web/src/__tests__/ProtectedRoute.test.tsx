@@ -34,7 +34,7 @@ function TestApp({ initialPath }: { initialPath: string }) {
 }
 
 beforeEach(() => {
-  useAuthStore.setState({ accessToken: null, refreshToken: null, user: null });
+  useAuthStore.setState({ accessToken: null, user: null });
   localStorage.clear();
 });
 
@@ -46,7 +46,7 @@ describe("ProtectedRoute", () => {
   });
 
   it("renders children in AppShell when authenticated", () => {
-    useAuthStore.setState({ accessToken: "tok", refreshToken: null, user: null });
+    useAuthStore.setState({ accessToken: "tok", user: null });
     render(<TestApp initialPath="/dashboard" />);
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();

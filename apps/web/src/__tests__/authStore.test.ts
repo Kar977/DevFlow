@@ -13,7 +13,7 @@ const mockUser: User = {
 
 beforeEach(() => {
   localStorage.clear();
-  useAuthStore.setState({ accessToken: null, refreshToken: null, user: null });
+  useAuthStore.setState({ accessToken: null, user: null });
 });
 
 describe("useAuthStore", () => {
@@ -24,30 +24,28 @@ describe("useAuthStore", () => {
   });
 
   it("login sets token and user", () => {
-    useAuthStore.getState().login("access-123", "refresh-456", mockUser);
-    const { accessToken, refreshToken, user } = useAuthStore.getState();
+    useAuthStore.getState().login("access-123", mockUser);
+    const { accessToken, user } = useAuthStore.getState();
     expect(accessToken).toBe("access-123");
-    expect(refreshToken).toBe("refresh-456");
     expect(user?.email).toBe("test@example.com");
   });
 
   it("logout clears everything", () => {
-    useAuthStore.getState().login("access-123", "refresh-456", mockUser);
+    useAuthStore.getState().login("access-123", mockUser);
     useAuthStore.getState().logout();
     const { accessToken, user } = useAuthStore.getState();
     expect(accessToken).toBeNull();
     expect(user).toBeNull();
   });
 
-  it("setToken updates only accessToken", () => {
-    useAuthStore.getState().login("old", "refresh-456", mockUser);
+  it("setToken updates accessToken", () => {
+    useAuthStore.getState().login("old", mockUser);
     useAuthStore.getState().setToken("new-access");
     expect(useAuthStore.getState().accessToken).toBe("new-access");
-    expect(useAuthStore.getState().refreshToken).toBe("refresh-456");
   });
 
   it("setUser updates user", () => {
-    useAuthStore.getState().login("access-123", "refresh-456", mockUser);
+    useAuthStore.getState().login("access-123", mockUser);
     const updated = { ...mockUser, full_name: "Updated User" };
     useAuthStore.getState().setUser(updated);
     expect(useAuthStore.getState().user?.full_name).toBe("Updated User");

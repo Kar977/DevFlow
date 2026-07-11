@@ -11,14 +11,14 @@ export function useLoginMutation() {
   return useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
       const tokenRes = await apiClient.post("/auth/login", data);
-      const tokens = tokenRes.data as { access_token: string; refresh_token: string };
+      const tokens = tokenRes.data as { access_token: string };
       const meRes = await apiClient.get("/auth/me", {
         headers: { Authorization: `Bearer ${tokens.access_token}` },
       });
       return { tokens, user: meRes.data };
     },
     onSuccess: ({ tokens, user }) => {
-      login(tokens.access_token, tokens.refresh_token, user);
+      login(tokens.access_token, user);
       void queryClient.invalidateQueries();
       void navigate("/dashboard", { replace: true });
     },

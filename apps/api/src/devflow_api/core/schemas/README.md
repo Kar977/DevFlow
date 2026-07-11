@@ -46,23 +46,21 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = None
     avatar_url: AnyHttpUrl | None = None
 
 # responses
-class TokenResponse(BaseModel):
+class AccessTokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
 
-# POST /auth/refresh rotates the refresh token, so it also returns
-# TokenResponse (new access_token + new refresh_token) rather than a
-# access-token-only response.
+# The refresh token is never returned in a response body. /auth/login and
+# /auth/refresh set it as an httpOnly, SameSite=Lax cookie (scoped to the
+# /auth path) instead, so it is not readable from JavaScript. /auth/refresh
+# rotates the refresh token on every call and re-sets the cookie; /auth/logout
+# reads it from the cookie and clears it.
 
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -25,7 +25,7 @@ const mockUser = {
 let locationMock: { href: string };
 
 beforeEach(() => {
-  useAuthStore.setState({ accessToken: null, refreshToken: null, user: null });
+  useAuthStore.setState({ accessToken: null, user: null });
   locationMock = { href: "" };
   // Provide window.location for the interceptor code (Node env has no window)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("apiClient — request interceptor", () => {
   it("attaches Authorization: Bearer header when an access token is set", async () => {
-    useAuthStore.getState().login("tok-abc", "ref-xyz", mockUser);
+    useAuthStore.getState().login("tok-abc", mockUser);
 
     let capturedHeader: string | null = null;
     server.use(
@@ -72,27 +72,8 @@ describe("apiClient — request interceptor", () => {
 });
 
 describe("apiClient — response interceptor (401 handling)", () => {
-  it("calls logout() and redirects to /login when 401 and no refresh token", async () => {
-    useAuthStore.setState({
-      accessToken: "bad-tok",
-      refreshToken: null,
-      user: mockUser,
-    });
-
-    server.use(
-      http.get("http://localhost/api/v1/tasks", () =>
-        HttpResponse.json({ detail: "Unauthorized" }, { status: 401 })
-      )
-    );
-
-    await expect(apiClient.get("/tasks")).rejects.toThrow();
-
-    expect(useAuthStore.getState().accessToken).toBeNull();
-    expect(locationMock.href).toBe("/login");
-  });
-
-  it("calls POST /api/v1/auth/refresh and retries the original request when 401 with refresh token", async () => {
-    useAuthStore.getState().login("expired-tok", "valid-refresh", mockUser);
+  it("calls POST /api/v1/auth/refresh (no body — cookie carries the refresh token) and retries on 401", async () => {
+    useAuthStore.getState().login("expired-tok", mockUser);
 
     let tasksCallCount = 0;
     server.use(
@@ -104,8 +85,9 @@ describe("apiClient — response interceptor (401 handling)", () => {
         return HttpResponse.json({ items: ["task1"] });
       }),
       http.post("http://localhost/api/v1/auth/refresh", async ({ request }) => {
-        const body = (await request.json()) as { refresh_token: string };
-        expect(body.refresh_token).toBe("valid-refresh");
+        // No refresh token in the body — it travels as an httpOnly cookie.
+        const text = await request.text();
+        expect(text).toBe("");
         return HttpResponse.json({ access_token: "new-tok-123" });
       })
     );
@@ -117,8 +99,8 @@ describe("apiClient — response interceptor (401 handling)", () => {
     expect(tasksCallCount).toBe(2);
   });
 
-  it("calls logout() and redirects to /login when refresh call fails", async () => {
-    useAuthStore.getState().login("expired-tok", "bad-refresh", mockUser);
+  it("calls logout() and redirects to /login when refresh call fails (no/invalid refresh cookie)", async () => {
+    useAuthStore.getState().login("expired-tok", mockUser);
 
     server.use(
       http.get("http://localhost/api/v1/tasks", () =>

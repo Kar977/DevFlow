@@ -17,18 +17,20 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
 class UpdateProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=255)
     avatar_url: str | None = Field(default=None, max_length=2048)
 
 
-class TokenResponse(BaseModel):
+class AccessTokenResponse(BaseModel):
+    """Access token returned in the response body.
+
+    The refresh token itself is never exposed to JavaScript — it is set as an
+    httpOnly cookie on ``/login`` and ``/refresh`` instead (see
+    ``devflow_api.api.v1.auth.routes``).
+    """
+
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     expires_in: int
 
