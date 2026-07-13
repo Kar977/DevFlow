@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.models.task import Task
+from devflow_api.core.unset import UNSET, Unset
 
 
 class TaskRepository:
@@ -78,31 +79,36 @@ class TaskRepository:
         task: Task,
         *,
         title: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
         status: str | None = None,
         priority: str | None = None,
-        estimate_minutes: int | None = None,
-        assignee_id: uuid.UUID | None = None,
-        due_date: datetime | None = None,
-        github_pr_url: str | None = None,
+        estimate_minutes: int | None | Unset = UNSET,
+        assignee_id: uuid.UUID | None | Unset = UNSET,
+        due_date: datetime | None | Unset = UNSET,
+        github_pr_url: str | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
-        if description is not None:
+        if not isinstance(description, Unset):
             task.description = description
         if status is not None:
             task.status = status
         if priority is not None:
             task.priority = priority
-        if estimate_minutes is not None:
+        if not isinstance(estimate_minutes, Unset):
             task.estimate_minutes = estimate_minutes
-        if assignee_id is not None:
+        if not isinstance(assignee_id, Unset):
             task.assignee_id = assignee_id
-        if due_date is not None:
+        if not isinstance(due_date, Unset):
             task.due_date = due_date
-        if github_pr_url is not None:
+        if not isinstance(github_pr_url, Unset):
             task.github_pr_url = github_pr_url
         await self._session.flush()
+        # `updated_at` is set by an onupdate=func.now() server-side default;
+        # without a refresh the attribute stays expired and a later sync
+        # attribute read (e.g. TaskResponse.model_validate) raises
+        # MissingGreenlet when it tries to lazily reload it.
+        await self._session.refresh(task)
         return task
 
     async def delete(self, task: Task) -> None:

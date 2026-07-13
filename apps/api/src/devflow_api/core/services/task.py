@@ -15,6 +15,7 @@ from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.repositories.task import TaskRepository
 from devflow_api.core.repositories.work_session import WorkSessionRepository
+from devflow_api.core.unset import UNSET, Unset
 
 
 class TaskService:
@@ -139,18 +140,21 @@ class TaskService:
         task_id: uuid.UUID,
         user_id: uuid.UUID,
         title: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
         status: str | None = None,
         priority: str | None = None,
-        estimate_minutes: int | None = None,
-        assignee_id: uuid.UUID | None = None,
-        due_date: datetime | None = None,
-        github_pr_url: str | None = None,
+        estimate_minutes: int | None | Unset = UNSET,
+        assignee_id: uuid.UUID | None | Unset = UNSET,
+        due_date: datetime | None | Unset = UNSET,
+        github_pr_url: str | None | Unset = UNSET,
     ) -> Task:
         task, project = await self._get_accessible_task(
             task_id=task_id, user_id=user_id
         )
-        await self._validate_assignee(assignee_id=assignee_id, org_id=project.org_id)
+        if not isinstance(assignee_id, Unset):
+            await self._validate_assignee(
+                assignee_id=assignee_id, org_id=project.org_id
+            )
         return await self._task_repo.update(
             task,
             title=title,

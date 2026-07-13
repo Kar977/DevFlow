@@ -14,6 +14,7 @@ from devflow_api.core.schemas.tasks import (
 )
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.task import TaskService, get_task_service
+from devflow_api.core.unset import UNSET
 
 router = APIRouter()
 
@@ -94,17 +95,20 @@ async def update_task(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: TaskService = Depends(get_task_service),
 ) -> TaskResponse:
+    fields = body.model_fields_set
     task = await service.update_task(
         task_id=task_id,
         user_id=subject.user_id,
         title=body.title,
-        description=body.description,
+        description=body.description if "description" in fields else UNSET,
         status=body.status,
         priority=body.priority,
-        estimate_minutes=body.estimate_minutes,
-        assignee_id=body.assignee_id,
-        due_date=body.due_date,
-        github_pr_url=body.github_pr_url,
+        estimate_minutes=body.estimate_minutes
+        if "estimate_minutes" in fields
+        else UNSET,
+        assignee_id=body.assignee_id if "assignee_id" in fields else UNSET,
+        due_date=body.due_date if "due_date" in fields else UNSET,
+        github_pr_url=body.github_pr_url if "github_pr_url" in fields else UNSET,
     )
     return TaskResponse.model_validate(task)
 
