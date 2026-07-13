@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/shared/store/authStore";
+import { apiClient } from "@/shared/api/client";
 import { OrgSwitcher } from "@/features/organizations/components/OrgSwitcher";
 import {
   Avatar,
@@ -26,8 +27,15 @@ export function Topbar() {
       .slice(0, 2) ?? "?";
 
   function handleLogout() {
-    logout();
-    void navigate("/login", { replace: true });
+    // Revoke the refresh-token cookie server-side; local logout must still
+    // proceed even if the request fails (e.g. offline, already expired).
+    apiClient
+      .post("/auth/logout")
+      .catch(() => undefined)
+      .finally(() => {
+        logout();
+        void navigate("/login", { replace: true });
+      });
   }
 
   return (

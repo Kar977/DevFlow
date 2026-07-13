@@ -4,6 +4,8 @@ import { useAuthStore } from "@/shared/store/authStore";
 export const apiClient = axios.create({
   baseURL: "/api/v1",
   headers: { "Content-Type": "application/json" },
+  // Send/receive the httpOnly refresh-token cookie set by the backend.
+  withCredentials: true,
 });
 
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
@@ -37,12 +39,7 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const { refreshToken, setToken, logout } = useAuthStore.getState();
-    if (!refreshToken) {
-      logout();
-      window.location.href = "/login";
-      return Promise.reject(error);
-    }
+    const { setToken, logout } = useAuthStore.getState();
 
     if (isRefreshing) {
       return new Promise<string>((resolve, reject) => {
@@ -57,9 +54,11 @@ apiClient.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const response = await axios.post<{ access_token: string }>("/api/v1/auth/refresh", {
-        refresh_token: refreshToken,
-      });
+      const response = await axios.post<{ access_token: string }>(
+        "/api/v1/auth/refresh",
+        null,
+        { withCredentials: true }
+      );
       const newToken = response.data.access_token;
       setToken(newToken);
       processQueue(null, newToken);

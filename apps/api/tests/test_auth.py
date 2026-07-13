@@ -234,7 +234,7 @@ def test_register_short_password_returns_422(auth_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_login_returns_tokens(auth_client: TestClient) -> None:
+def test_login_returns_access_token(auth_client: TestClient) -> None:
     auth_client.post(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
@@ -246,8 +246,52 @@ def test_login_returns_tokens(auth_client: TestClient) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert "access_token" in body
-    assert "refresh_token" in body
+    assert "refresh_token" not in body
     assert body["token_type"] == "bearer"
+
+
+def test_login_sets_httponly_refresh_cookie(auth_client: TestClient) -> None:
+    auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    resp = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    assert resp.status_code == 200
+    assert "refresh_token" in resp.cookies
+    set_cookie_header = resp.headers.get("set-cookie", "")
+    assert "httponly" in set_cookie_header.lower()
+    # Non-production environments must not require HTTPS for local dev.
+    assert "secure" not in set_cookie_header.lower()
+
+
+def test_login_sets_secure_cookie_in_production(
+    auth_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import devflow_api.api.v1.auth.routes as auth_routes_module
+    from devflow_api.core.config import Settings
+
+    prod_settings = Settings(
+        environment="production",
+        secret_key="x" * 40,
+        allowed_hosts=["example.com"],
+    )
+    monkeypatch.setattr(auth_routes_module, "get_settings", lambda: prod_settings)
+
+    auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    resp = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "u@example.com", "password": "password1"},
+    )
+    assert resp.status_code == 200
+    set_cookie_header = resp.headers.get("set-cookie", "")
+    assert "secure" in set_cookie_header.lower()
 
 
 def test_login_wrong_password_returns_401(auth_client: TestClient) -> None:
@@ -275,91 +319,90 @@ def test_login_unknown_email_returns_401(auth_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_refresh_returns_new_access_and_refresh_token(auth_client: TestClient) -> None:
+def test_refresh_returns_new_access_token_and_rotates_cookie(
+    auth_client: TestClient,
+) -> None:
     auth_client.post(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
     )
-    login = auth_client.post(
+    auth_client.post(
         "/api/v1/auth/login",
         json={"email": "u@example.com", "password": "password1"},
     )
-    refresh_token = login.json()["refresh_token"]
+    old_refresh_token = auth_client.cookies.get("refresh_token")
 
-    resp = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": refresh_token},
-    )
+    resp = auth_client.post("/api/v1/auth/refresh")
     assert resp.status_code == 200
     body = resp.json()
     assert "access_token" in body
-    assert "refresh_token" in body
-    # Rotation: a fresh refresh token is issued, distinct from the one used.
-    assert body["refresh_token"] != refresh_token
+    assert "refresh_token" not in body
+    # Rotation: a fresh refresh cookie is issued, distinct from the one used.
+    assert auth_client.cookies.get("refresh_token") != old_refresh_token
 
 
-def test_refresh_rotates_and_old_token_is_rejected(auth_client: TestClient) -> None:
+def test_refresh_rotates_and_old_token_is_rejected(
+    auth_client: TestClient,
+    token_repo: FakeRefreshTokenRepository,
+) -> None:
     auth_client.post(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
     )
-    login = auth_client.post(
+    auth_client.post(
         "/api/v1/auth/login",
         json={"email": "u@example.com", "password": "password1"},
     )
-    old_refresh_token = login.json()["refresh_token"]
+    old_refresh_token = auth_client.cookies.get("refresh_token")
+    assert old_refresh_token is not None
 
-    first = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": old_refresh_token},
-    )
+    first = auth_client.post("/api/v1/auth/refresh")
     assert first.status_code == 200
 
-    # Re-using the now-rotated-away token must fail.
-    second = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": old_refresh_token},
-    )
+    # Re-using the now-rotated-away token must fail. The client jar now
+    # holds the new cookie, so present the old one explicitly.
+    auth_client.cookies.set("refresh_token", old_refresh_token)
+    second = auth_client.post("/api/v1/auth/refresh")
     assert second.status_code == 401
 
 
-def test_refresh_reuse_detection_revokes_all_tokens(auth_client: TestClient) -> None:
+def test_refresh_reuse_detection_revokes_all_tokens(
+    auth_client: TestClient,
+) -> None:
     auth_client.post(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
     )
-    login = auth_client.post(
+    auth_client.post(
         "/api/v1/auth/login",
         json={"email": "u@example.com", "password": "password1"},
     )
-    old_refresh_token = login.json()["refresh_token"]
+    old_refresh_token = auth_client.cookies.get("refresh_token")
+    assert old_refresh_token is not None
 
-    first = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": old_refresh_token},
-    )
-    new_refresh_token = first.json()["refresh_token"]
+    auth_client.post("/api/v1/auth/refresh")
+    new_refresh_token = auth_client.cookies.get("refresh_token")
+    assert new_refresh_token is not None
 
     # Reusing the already-rotated token is treated as a theft signal: it
     # must revoke the whole token family, including the freshly issued one.
-    reuse = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": old_refresh_token},
-    )
+    auth_client.cookies.set("refresh_token", old_refresh_token)
+    reuse = auth_client.post("/api/v1/auth/refresh")
     assert reuse.status_code == 401
 
-    blocked = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": new_refresh_token},
-    )
+    auth_client.cookies.set("refresh_token", new_refresh_token)
+    blocked = auth_client.post("/api/v1/auth/refresh")
     assert blocked.status_code == 401
 
 
 def test_refresh_invalid_token_returns_401(auth_client: TestClient) -> None:
-    resp = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": "notavalidtoken"},
-    )
+    auth_client.cookies.set("refresh_token", "notavalidtoken")
+    resp = auth_client.post("/api/v1/auth/refresh")
+    assert resp.status_code == 401
+
+
+def test_refresh_missing_cookie_returns_401(auth_client: TestClient) -> None:
+    resp = auth_client.post("/api/v1/auth/refresh")
     assert resp.status_code == 401
 
 
@@ -371,18 +414,16 @@ def test_refresh_revoked_token_returns_401(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
     )
-    login = auth_client.post(
+    auth_client.post(
         "/api/v1/auth/login",
         json={"email": "u@example.com", "password": "password1"},
     )
-    raw_token = login.json()["refresh_token"]
+    raw_token = auth_client.cookies.get("refresh_token")
+    assert raw_token is not None
     stored = token_repo._store[hash_token(raw_token)]
     stored.revoked_at = datetime.now(UTC)
 
-    resp = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": raw_token},
-    )
+    resp = auth_client.post("/api/v1/auth/refresh")
     assert resp.status_code == 401
 
 
@@ -394,18 +435,16 @@ def test_refresh_expired_token_returns_401(
         "/api/v1/auth/register",
         json={"email": "u@example.com", "password": "password1"},
     )
-    login = auth_client.post(
+    auth_client.post(
         "/api/v1/auth/login",
         json={"email": "u@example.com", "password": "password1"},
     )
-    raw_token = login.json()["refresh_token"]
+    raw_token = auth_client.cookies.get("refresh_token")
+    assert raw_token is not None
     stored = token_repo._store[hash_token(raw_token)]
     stored.expires_at = datetime.now(UTC) - timedelta(days=1)
 
-    resp = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": raw_token},
-    )
+    resp = auth_client.post("/api/v1/auth/refresh")
     assert resp.status_code == 401
 
 
@@ -429,20 +468,19 @@ def _register_and_login(client: TestClient) -> dict[str, str]:
 def test_logout_revokes_refresh_token(auth_client: TestClient) -> None:
     tokens = _register_and_login(auth_client)
     access = tokens["access_token"]
-    refresh = tokens["refresh_token"]
+    refresh = auth_client.cookies.get("refresh_token")
+    assert refresh is not None
 
     resp = auth_client.post(
         "/api/v1/auth/logout",
-        json={"refresh_token": refresh},
         headers={"Authorization": f"Bearer {access}"},
     )
     assert resp.status_code == 204
 
-    # subsequent refresh must fail
-    resp2 = auth_client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": refresh},
-    )
+    # subsequent refresh must fail (logout revoked this token server-side;
+    # re-present it explicitly since the client jar had it cleared)
+    auth_client.cookies.set("refresh_token", refresh)
+    resp2 = auth_client.post("/api/v1/auth/refresh")
     assert resp2.status_code == 401
 
 

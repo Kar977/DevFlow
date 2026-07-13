@@ -9,12 +9,9 @@ export const UserSchema = z.object({
   updated_at: z.string().datetime(),
 });
 
-export const TokenResponseSchema = z.object({
-  access_token: z.string(),
-  refresh_token: z.string(),
-  token_type: z.literal("bearer"),
-});
-
+// Refresh tokens are never returned in the response body — the backend sets
+// them as an httpOnly cookie instead (see shared/api/client.ts). Only the
+// short-lived access token comes back to JS.
 export const AccessTokenResponseSchema = z.object({
   access_token: z.string(),
   token_type: z.literal("bearer"),
@@ -32,7 +29,6 @@ export const RegisterRequestSchema = z.object({
 });
 
 export type User = z.infer<typeof UserSchema>;
-export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 export type AccessTokenResponse = z.infer<typeof AccessTokenResponseSchema>;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;

@@ -2,13 +2,14 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
+from devflow_api.core.config import get_settings
+from devflow_api.core.errors import AppError
 from devflow_api.core.schemas.auth import (
+    AccessTokenResponse,
     LoginRequest,
-    RefreshRequest,
     RegisterRequest,
-    TokenResponse,
     UpdateProfileRequest,
     UserResponse,
 )
@@ -16,6 +17,30 @@ from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.auth import AuthService, get_auth_service
 
 router = APIRouter()
+
+_REFRESH_COOKIE_NAME = "refresh_token"
+
+
+def _refresh_cookie_path() -> str:
+    """Scope the refresh cookie to auth endpoints only."""
+    return f"{get_settings().api_v1_prefix}/auth"
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        key=_REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        path=_refresh_cookie_path(),
+        httponly=True,
+        samesite="lax",
+        secure=settings.environment in ("staging", "production"),
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key=_REFRESH_COOKIE_NAME, path=_refresh_cookie_path())
 
 
 @router.post(
@@ -38,39 +63,48 @@ async def register(
 
 @router.post(
     "/login",
-    response_model=TokenResponse,
-    summary="Authenticate and receive JWT tokens",
+    response_model=AccessTokenResponse,
+    summary="Authenticate and receive an access token",
 )
 async def login(
     body: LoginRequest,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
-) -> TokenResponse:
+) -> AccessTokenResponse:
     access_token, refresh_token = await service.login(
         email=body.email,
         password=body.password,
     )
-    return TokenResponse(
+    _set_refresh_cookie(response, refresh_token)
+    return AccessTokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
         expires_in=AuthService.access_token_expires_in(),
     )
 
 
 @router.post(
     "/refresh",
-    response_model=TokenResponse,
-    summary="Rotate a refresh token and receive a new token pair",
+    response_model=AccessTokenResponse,
+    summary="Rotate the refresh token and receive a new access token",
 )
 async def refresh_token(
-    body: RefreshRequest,
+    request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
-) -> TokenResponse:
+) -> AccessTokenResponse:
+    presented_token = request.cookies.get(_REFRESH_COOKIE_NAME)
+    if not presented_token:
+        raise AppError(
+            code="invalid_refresh_token",
+            message="Refresh token is invalid or has expired.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
     access_token, new_refresh_token = await service.refresh(
-        refresh_token=body.refresh_token
+        refresh_token=presented_token
     )
-    return TokenResponse(
+    _set_refresh_cookie(response, new_refresh_token)
+    return AccessTokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh_token,
         expires_in=AuthService.access_token_expires_in(),
     )
 
@@ -81,11 +115,15 @@ async def refresh_token(
     summary="Revoke the current refresh token",
 )
 async def logout(
-    body: RefreshRequest,
+    request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
     _subject: AuthenticatedSubject = Depends(get_current_subject),
 ) -> None:
-    await service.logout(refresh_token=body.refresh_token)
+    presented_token = request.cookies.get(_REFRESH_COOKIE_NAME)
+    if presented_token:
+        await service.logout(refresh_token=presented_token)
+    _clear_refresh_cookie(response)
 
 
 @router.get(

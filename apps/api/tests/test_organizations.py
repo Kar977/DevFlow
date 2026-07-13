@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from devflow_api.core.errors import AppError
 from devflow_api.core.models.organization import Organization
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.user import User
@@ -434,3 +435,57 @@ def test_remove_owner_returns_403(
     org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
     response = client.delete(f"/api/v1/organizations/{org.id}/members/{owner.id}")
     assert response.status_code == 403
+
+
+def test_invite_owner_role_by_admin_returns_403(
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    """Admins must not be able to grant the owner role to escalate privileges."""
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    service = OrganizationService(org_repo=org_repo, user_repo=user_repo)  # type: ignore[arg-type]
+    asyncio.run(
+        service.invite_member(
+            org_id=org.id,
+            inviter_id=owner.id,
+            email=other_user.email,
+            role="admin",
+        )
+    )
+    third_user = _make_user("third@example.com")
+    user_repo.seed(third_user)
+
+    async def attempt() -> None:
+        await service.invite_member(
+            org_id=org.id,
+            inviter_id=other_user.id,
+            email=third_user.email,
+            role="owner",
+        )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(attempt())
+    assert exc_info.value.status_code == 403
+
+
+def test_invite_owner_role_by_owner_returns_201(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    """Owners are allowed to grant the owner role to another member."""
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    response = client.post(
+        f"/api/v1/organizations/{org.id}/members",
+        json={"email": other_user.email, "role": "owner"},
+    )
+    assert response.status_code == 201
+    assert response.json()["role"] == "owner"

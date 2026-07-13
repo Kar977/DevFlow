@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { UserSchema, TokenResponseSchema, LoginRequestSchema } from "@/shared/api/schemas/auth";
+import { UserSchema, AccessTokenResponseSchema, LoginRequestSchema } from "@/shared/api/schemas/auth";
 import { OrganizationSchema } from "@/shared/api/schemas/organization";
 
 describe("UserSchema", () => {
@@ -29,10 +29,10 @@ describe("UserSchema", () => {
   });
 });
 
-describe("TokenResponseSchema", () => {
-  it("parses valid token response", () => {
-    const raw = { access_token: "aaa", refresh_token: "bbb", token_type: "bearer" as const };
-    expect(TokenResponseSchema.parse(raw)).toEqual(raw);
+describe("AccessTokenResponseSchema", () => {
+  it("parses valid access token response", () => {
+    const raw = { access_token: "aaa", token_type: "bearer" as const };
+    expect(AccessTokenResponseSchema.parse(raw)).toEqual(raw);
   });
 });
 
