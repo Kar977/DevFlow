@@ -169,7 +169,7 @@ class FakeWorkSessionRepository:
             user_id=user_id,
             started_at=started_at,
             ended_at=None,
-            duration_minutes=None,
+            duration_seconds=None,
             created_at=datetime.now(UTC),
         )
         self._sessions[session.id] = session
@@ -191,11 +191,23 @@ class FakeWorkSessionRepository:
     async def list_for_task(self, task_id: uuid.UUID) -> list[WorkSession]:
         return [s for s in self._sessions.values() if s.task_id == task_id]
 
+    async def tracked_seconds_for_tasks(
+        self, task_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        totals: dict[uuid.UUID, int] = {}
+        for session in self._sessions.values():
+            if session.task_id not in task_ids or not session.duration_seconds:
+                continue
+            totals[session.task_id] = (
+                totals.get(session.task_id, 0) + session.duration_seconds
+            )
+        return totals
+
     async def stop(
-        self, session: WorkSession, *, ended_at: datetime, duration_minutes: int
+        self, session: WorkSession, *, ended_at: datetime, duration_seconds: int
     ) -> WorkSession:
         session.ended_at = ended_at
-        session.duration_minutes = duration_minutes
+        session.duration_seconds = duration_seconds
         return session
 
     def seed_active(
@@ -207,7 +219,27 @@ class FakeWorkSessionRepository:
             user_id=user_id,
             started_at=started_at,
             ended_at=None,
-            duration_minutes=None,
+            duration_seconds=None,
+            created_at=datetime.now(UTC),
+        )
+        self._sessions[session.id] = session
+        return session
+
+    def seed_completed(
+        self,
+        *,
+        task_id: uuid.UUID,
+        user_id: uuid.UUID,
+        started_at: datetime,
+        duration_seconds: int,
+    ) -> WorkSession:
+        session = WorkSession(
+            id=uuid.uuid4(),
+            task_id=task_id,
+            user_id=user_id,
+            started_at=started_at,
+            ended_at=started_at + timedelta(seconds=duration_seconds),
+            duration_seconds=duration_seconds,
             created_at=datetime.now(UTC),
         )
         self._sessions[session.id] = session
@@ -371,6 +403,34 @@ def test_list_tasks_filtered_by_status(
 def test_list_tasks_missing_project_returns_422(client: TestClient) -> None:
     response = client.get("/api/v1/tasks")
     assert response.status_code == 422
+
+
+def test_list_tasks_returns_accumulated_tracked_seconds(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Multiple start/stop cycles on a task must sum, not overwrite, in the list."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    session_repo.seed_completed(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(hours=2),
+        duration_seconds=600,
+    )
+    session_repo.seed_completed(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(hours=1),
+        duration_seconds=300,
+    )
+    response = client.get(f"/api/v1/tasks?project_id={project_id}")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["tracked_seconds"] == 900
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +600,28 @@ def test_stop_session_computes_duration(
     assert response.status_code == 200
     body = response.json()
     assert body["ended_at"] is not None
-    assert body["duration_minutes"] == 90
+    assert body["duration_seconds"] == 90 * 60
+
+
+def test_stop_session_sub_minute_interval_is_not_lost(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A short start/stop cycle (<1 min) must still record real seconds, not 0."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    session_repo.seed_active(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(seconds=45),
+    )
+    response = client.post(f"/api/v1/tasks/{task.id}/stop")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duration_seconds"] >= 45
+    assert body["duration_seconds"] < 60
 
 
 def test_stop_session_without_active_returns_404(

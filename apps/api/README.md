@@ -133,7 +133,7 @@ task_id: UUID (FK → tasks)
 user_id: UUID (FK → users)
 started_at: datetime
 ended_at: datetime | None
-duration_minutes: int | None   ← filled automatically on stop
+duration_seconds: int | None   ← filled automatically on stop
 created_at: datetime
 ```
 

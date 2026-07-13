@@ -188,7 +188,7 @@ class WorkSessionResponse(BaseModel):
     task_id: UUID
     started_at: datetime
     ended_at: datetime | None
-    duration_minutes: int | None
+    duration_seconds: int | None
 ```
 
 ---

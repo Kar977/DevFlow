@@ -123,15 +123,19 @@ class TaskService:
         assignee_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Task]:
+    ) -> list[tuple[Task, int]]:
         await self._require_project_access(project_id=project_id, user_id=user_id)
-        return await self._task_repo.list_for_project(
+        tasks = await self._task_repo.list_for_project(
             project_id,
             status=status,
             assignee_id=assignee_id,
             limit=limit,
             offset=offset,
         )
+        tracked = await self._work_session_repo.tracked_seconds_for_tasks(
+            [t.id for t in tasks]
+        )
+        return [(task, tracked.get(task.id, 0)) for task in tasks]
 
     async def update_task(
         self,
@@ -199,9 +203,9 @@ class TaskService:
         started_at = active.started_at
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
-        duration_minutes = int((ended_at - started_at).total_seconds() // 60)
+        duration_seconds = int((ended_at - started_at).total_seconds())
         return await self._work_session_repo.stop(
-            active, ended_at=ended_at, duration_minutes=duration_minutes
+            active, ended_at=ended_at, duration_seconds=duration_seconds
         )
 
     async def list_sessions(

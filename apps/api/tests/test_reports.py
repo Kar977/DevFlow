@@ -432,7 +432,7 @@ def test_generate_payload_weekly_summary_shape() -> None:
         user_id=task.assignee_id,
         started_at=end - timedelta(days=1),
         ended_at=end - timedelta(days=1) + timedelta(hours=2),
-        duration_minutes=120,
+        duration_seconds=120 * 60,
         created_at=end - timedelta(days=1),
     )
     metrics_repo.user_tasks = [task]

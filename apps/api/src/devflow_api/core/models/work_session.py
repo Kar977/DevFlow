@@ -25,7 +25,7 @@ class WorkSession(UUIDPrimaryKeyMixin, Base):
         DateTime(timezone=True), nullable=False
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    duration_minutes: Mapped[int | None] = mapped_column(Integer)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

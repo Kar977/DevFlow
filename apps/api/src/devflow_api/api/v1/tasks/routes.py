@@ -65,7 +65,10 @@ async def list_tasks(
         limit=limit,
         offset=offset,
     )
-    items = [TaskResponse.model_validate(t) for t in tasks]
+    items = [
+        TaskResponse.model_validate(t).model_copy(update={"tracked_seconds": secs})
+        for t, secs in tasks
+    ]
     return TaskListResponse(items=items, total=len(items))
 
 

@@ -1,4 +1,6 @@
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
+import { useTaskTrackedSeconds } from "@/features/tasks/hooks/useTaskTrackedSeconds";
+import { formatTrackedTime } from "@/features/tasks/lib/trackedTime";
 import { TimerButton } from "./TimerButton";
 
 const statusColors: Record<Task["status"], string> = {
@@ -23,6 +25,7 @@ interface Props {
 }
 
 export function TaskCard({ task, onClick }: Props) {
+  const trackedSeconds = useTaskTrackedSeconds(task);
   return (
     <div
       className="flex items-center justify-between rounded-lg border border-border bg-card p-4 hover:bg-accent/50 cursor-pointer transition-colors"
@@ -39,6 +42,11 @@ export function TaskCard({ task, onClick }: Props) {
           </span>
           {task.estimate_minutes && (
             <span className="text-xs text-muted-foreground">{task.estimate_minutes} min</span>
+          )}
+          {trackedSeconds > 0 && (
+            <span className="text-xs text-muted-foreground">
+              ⏱ {formatTrackedTime(trackedSeconds)}
+            </span>
           )}
         </div>
       </div>
