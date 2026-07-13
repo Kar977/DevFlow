@@ -44,6 +44,7 @@ class MemberResponse(BaseModel):
     user_id: uuid.UUID
     role: str
     joined_at: datetime
+    display_name: str
 
     model_config = {"from_attributes": True}
 

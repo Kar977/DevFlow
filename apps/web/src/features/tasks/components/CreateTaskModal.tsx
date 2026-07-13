@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from "@/shared/ui";
 import { useCreateTask } from "@/features/tasks/hooks/useTaskMutations";
+import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
+import { useOrgStore } from "@/shared/store/orgStore";
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Niski" },
@@ -24,6 +26,8 @@ const PRIORITY_OPTIONS = [
   { value: "high", label: "Wysoki" },
   { value: "critical", label: "Krytyczny" },
 ] as const;
+
+const UNASSIGNED = "__unassigned__";
 
 const CreateTaskSchema = z.object({
   title: z.string().min(1, "Tytuł jest wymagany"),
@@ -34,6 +38,7 @@ const CreateTaskSchema = z.object({
     .int()
     .positive("Podaj dodatnią liczbę minut")
     .optional(),
+  assignee_id: z.string().optional(),
 });
 type CreateTaskData = z.infer<typeof CreateTaskSchema>;
 
@@ -45,6 +50,8 @@ interface Props {
 
 export function CreateTaskModal({ open, onClose, projectId }: Props) {
   const createTask = useCreateTask(projectId);
+  const { activeOrgId } = useOrgStore();
+  const { data: members } = useOrgMembersQuery(activeOrgId);
 
   const {
     register,
@@ -59,6 +66,7 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
   });
 
   const currentPriority = watch("priority");
+  const currentAssignee = watch("assignee_id");
 
   function onSubmit(data: CreateTaskData) {
     createTask.mutate(
@@ -67,6 +75,7 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
         description: data.description || undefined,
         priority: data.priority,
         estimate_minutes: data.estimate_minutes,
+        assignee_id: data.assignee_id,
       },
       {
         onSuccess: () => {
@@ -142,6 +151,28 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
                 <p className="text-sm text-destructive">{errors.estimate_minutes.message}</p>
               )}
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Przypisano do</Label>
+            <Select
+              value={currentAssignee ?? UNASSIGNED}
+              onValueChange={(v) =>
+                setValue("assignee_id", v === UNASSIGNED ? undefined : v)
+              }
+            >
+              <SelectTrigger aria-label="Przypisano do">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED}>Nieprzypisane</SelectItem>
+                {members?.map((m) => (
+                  <SelectItem key={m.user_id} value={m.user_id}>
+                    {m.display_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter>

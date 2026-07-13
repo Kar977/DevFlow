@@ -7,6 +7,7 @@ export interface MemberResponse {
   user_id: string;
   role: "owner" | "admin" | "member";
   joined_at: string;
+  display_name: string;
 }
 
 interface MemberListResponse {

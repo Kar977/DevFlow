@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { useTasksQuery } from "@/features/tasks/hooks/useTasksQuery";
 import { useProjectsQuery } from "@/features/projects/hooks/useProjectsQuery";
+import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { TaskCard } from "@/features/tasks/components/TaskCard";
 import { TaskFilters } from "@/features/tasks/components/TaskFilters";
 import { TaskDetailModal } from "@/features/tasks/components/TaskDetailModal";
@@ -19,11 +20,13 @@ import {
 export function TaskListPage() {
   const { activeOrgId } = useOrgStore();
   const [statusFilter, setStatusFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [showCreate, setShowCreate] = useState(false);
 
   const { data: projectsData } = useProjectsQuery();
+  const { data: members } = useOrgMembersQuery(activeOrgId);
 
   useEffect(() => {
     if (!selectedProjectId && projectsData?.items.length) {
@@ -34,6 +37,7 @@ export function TaskListPage() {
   const { data, isLoading } = useTasksQuery({
     project_id: selectedProjectId,
     status: statusFilter === "all" ? undefined : statusFilter,
+    assignee_id: assigneeFilter || undefined,
   });
 
   if (!activeOrgId) {
@@ -81,7 +85,13 @@ export function TaskListPage() {
         </div>
       </div>
 
-      <TaskFilters status={statusFilter} onStatusChange={setStatusFilter} />
+      <TaskFilters
+        status={statusFilter}
+        onStatusChange={setStatusFilter}
+        assigneeId={assigneeFilter}
+        onAssigneeChange={setAssigneeFilter}
+        members={members ?? []}
+      />
 
       {isLoading && <p className="text-muted-foreground">Ładowanie...</p>}
 

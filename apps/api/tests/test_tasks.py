@@ -14,6 +14,7 @@ from devflow_api.core.models.task import Task
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.task import TaskService, get_task_service
+from devflow_api.core.unset import UNSET, Unset
 from devflow_api.main import create_app
 
 # ---------------------------------------------------------------------------
@@ -126,29 +127,29 @@ class FakeTaskRepository:
         task: Task,
         *,
         title: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
         status: str | None = None,
         priority: str | None = None,
-        estimate_minutes: int | None = None,
-        assignee_id: uuid.UUID | None = None,
-        due_date: datetime | None = None,
-        github_pr_url: str | None = None,
+        estimate_minutes: int | None | Unset = UNSET,
+        assignee_id: uuid.UUID | None | Unset = UNSET,
+        due_date: datetime | None | Unset = UNSET,
+        github_pr_url: str | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
-        if description is not None:
+        if not isinstance(description, Unset):
             task.description = description
         if status is not None:
             task.status = status
         if priority is not None:
             task.priority = priority
-        if estimate_minutes is not None:
+        if not isinstance(estimate_minutes, Unset):
             task.estimate_minutes = estimate_minutes
-        if assignee_id is not None:
+        if not isinstance(assignee_id, Unset):
             task.assignee_id = assignee_id
-        if due_date is not None:
+        if not isinstance(due_date, Unset):
             task.due_date = due_date
-        if github_pr_url is not None:
+        if not isinstance(github_pr_url, Unset):
             task.github_pr_url = github_pr_url
         return task
 
@@ -476,6 +477,49 @@ def test_update_task_invalid_status_returns_422(
     task = _make_task(service, project_id=project_id, user_id=user_id)
     response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "nope"})
     assert response.status_code == 422
+
+
+def test_update_task_can_unassign(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """PATCH with assignee_id: null must clear the field, not leave it unchanged."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    assign_response = client.patch(
+        f"/api/v1/tasks/{task.id}", json={"assignee_id": str(user_id)}
+    )
+    assert assign_response.status_code == 200
+    assert assign_response.json()["assignee_id"] == str(user_id)
+
+    unassign_response = client.patch(
+        f"/api/v1/tasks/{task.id}", json={"assignee_id": None}
+    )
+    assert unassign_response.status_code == 200
+    assert unassign_response.json()["assignee_id"] is None
+
+
+def test_update_task_omitting_field_leaves_it_unchanged(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A PATCH that omits a field must not clear it (distinct from explicit null)."""
+    task = asyncio.run(
+        service.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="Task",
+            estimate_minutes=45,
+        )
+    )
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"title": "Renamed"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Renamed"
+    assert body["estimate_minutes"] == 45
 
 
 def test_delete_task_returns_204(

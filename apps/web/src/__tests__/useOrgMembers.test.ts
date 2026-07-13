@@ -20,6 +20,7 @@ describe("useOrgMembersQuery", () => {
       user_id: "user-1",
       role: "owner",
       joined_at: "2024-01-01T00:00:00Z",
+      display_name: "Jan Kowalski",
     };
     server.use(
       http.get("*/organizations/org-1/members", () =>
@@ -34,6 +35,7 @@ describe("useOrgMembersQuery", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data?.[0]?.user_id).toBe("user-1");
+    expect(result.current.data?.[0]?.display_name).toBe("Jan Kowalski");
   });
 
   it("is disabled when orgId is null", () => {
