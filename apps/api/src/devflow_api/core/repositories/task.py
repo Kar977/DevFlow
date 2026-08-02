@@ -81,6 +81,24 @@ class TaskRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one()
 
+    async def count_overdue_for_project(
+        self, project_id: uuid.UUID, *, now: datetime
+    ) -> int:
+        """Count tasks past their due date and not done — mirrors the overdue
+        rule already used by MetricsService._compute_project_metrics."""
+        stmt = (
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.project_id == project_id,
+                Task.due_date.is_not(None),
+                Task.due_date < now,
+                Task.status != "done",
+            )
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
     async def get_by_github_pr_url(
         self, *, project_id: uuid.UUID, github_pr_url: str
     ) -> Task | None:
