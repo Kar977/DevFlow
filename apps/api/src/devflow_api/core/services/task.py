@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from fastapi import Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from devflow_api.core.cache import CacheBackend, get_cache
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
 from devflow_api.core.models.project import Project
@@ -25,11 +26,13 @@ class TaskService:
         work_session_repo: WorkSessionRepository,
         project_repo: ProjectRepository,
         org_repo: OrganizationRepository,
+        cache: CacheBackend | None = None,
     ) -> None:
         self._task_repo = task_repo
         self._work_session_repo = work_session_repo
         self._project_repo = project_repo
         self._org_repo = org_repo
+        self._cache = cache
 
     async def _require_project_access(
         self, *, project_id: uuid.UUID, user_id: uuid.UUID
@@ -162,7 +165,7 @@ class TaskService:
             await self._validate_assignee(
                 assignee_id=assignee_id, org_id=project.org_id
             )
-        return await self._task_repo.update(
+        updated = await self._task_repo.update(
             task,
             title=title,
             description=description,
@@ -173,6 +176,9 @@ class TaskService:
             due_date=due_date,
             github_pr_url=github_pr_url,
         )
+        if status == "done" and self._cache is not None and updated.assignee_id:
+            await self._cache.delete_matching(str(updated.assignee_id))
+        return updated
 
     async def delete_task(self, *, task_id: uuid.UUID, user_id: uuid.UUID) -> None:
         task, _project = await self._get_accessible_task(
@@ -211,9 +217,12 @@ class TaskService:
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
         duration_seconds = int((ended_at - started_at).total_seconds())
-        return await self._work_session_repo.stop(
+        stopped = await self._work_session_repo.stop(
             active, ended_at=ended_at, duration_seconds=duration_seconds
         )
+        if self._cache is not None:
+            await self._cache.delete_matching(str(user_id))
+        return stopped
 
     async def list_sessions(
         self, *, task_id: uuid.UUID, user_id: uuid.UUID
@@ -224,10 +233,12 @@ class TaskService:
 
 def get_task_service(
     session: AsyncSession = Depends(get_session),
+    cache: CacheBackend = Depends(get_cache),
 ) -> TaskService:
     return TaskService(
         task_repo=TaskRepository(session),
         work_session_repo=WorkSessionRepository(session),
         project_repo=ProjectRepository(session),
         org_repo=OrganizationRepository(session),
+        cache=cache,
     )

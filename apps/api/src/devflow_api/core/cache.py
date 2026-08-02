@@ -46,6 +46,10 @@ class CacheBackend(Protocol):
         """Store *value* under *key* for at most *ttl_seconds* seconds."""
         ...
 
+    async def delete_matching(self, needle: str) -> None:
+        """Delete every cached key containing *needle* as a substring."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # InMemoryCache — dev / test / fallback when redis_url is empty
@@ -76,6 +80,10 @@ class InMemoryCache:
 
     async def set(self, key: str, value: str, ttl_seconds: int) -> None:
         self._store[key] = (time.monotonic() + ttl_seconds, value)
+
+    async def delete_matching(self, needle: str) -> None:
+        for key in [k for k in self._store if needle in k]:
+            del self._store[key]
 
     def clear(self) -> None:
         """Remove all entries.  Useful in tests to force cache misses."""
@@ -114,6 +122,14 @@ class RedisCache:
             await self._client.set(key, value, ex=ttl_seconds)
         except Exception:  # noqa: BLE001
             pass  # Fallback: don't cache on error
+
+    async def delete_matching(self, needle: str) -> None:
+        try:
+            keys = [key async for key in self._client.scan_iter(match=f"*{needle}*")]
+            if keys:
+                await self._client.delete(*keys)
+        except Exception:  # noqa: BLE001
+            pass  # Fallback: stale entries just expire via TTL
 
 
 # ---------------------------------------------------------------------------
