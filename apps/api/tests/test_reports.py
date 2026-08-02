@@ -311,16 +311,16 @@ def test_list_reports_returns_200(
     response = client.get("/api/v1/reports")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 2
-    assert len(body["items"]) == 2
+    assert body["meta"]["total"] == 2
+    assert len(body["data"]) == 2
 
 
 def test_list_reports_empty(client: TestClient) -> None:
     response = client.get("/api/v1/reports")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 0
-    assert body["items"] == []
+    assert body["meta"]["total"] == 0
+    assert body["data"] == []
 
 
 def test_list_reports_pagination(
@@ -333,8 +333,8 @@ def test_list_reports_pagination(
     response = client.get("/api/v1/reports?limit=2&offset=0")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 5
-    assert len(body["items"]) == 2
+    assert body["meta"]["total"] == 5
+    assert len(body["data"]) == 2
 
 
 # ---------------------------------------------------------------------------

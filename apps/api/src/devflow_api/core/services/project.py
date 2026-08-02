@@ -75,15 +75,19 @@ class ProjectService:
         org_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Project]:
+    ) -> tuple[list[Project], int]:
         if org_id is not None:
             await self._require_org_membership(org_id=org_id, user_id=user_id)
-            return await self._project_repo.list_for_org(
+            projects = await self._project_repo.list_for_org(
                 org_id, limit=limit, offset=offset
             )
-        return await self._project_repo.list_for_user(
+            total = await self._project_repo.count_for_org(org_id)
+            return projects, total
+        projects = await self._project_repo.list_for_user(
             user_id, limit=limit, offset=offset
         )
+        total = await self._project_repo.count_for_user(user_id)
+        return projects, total
 
     async def update_project(
         self,

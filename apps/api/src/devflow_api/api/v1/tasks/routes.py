@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, status
 
+from devflow_api.core.schemas.pagination import PageMeta
 from devflow_api.core.schemas.tasks import (
     CreateTaskRequest,
     TaskListResponse,
@@ -58,7 +59,7 @@ async def list_tasks(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: TaskService = Depends(get_task_service),
 ) -> TaskListResponse:
-    tasks = await service.list_tasks(
+    tasks, total = await service.list_tasks(
         project_id=project_id,
         user_id=subject.user_id,
         status=task_status,
@@ -70,7 +71,9 @@ async def list_tasks(
         TaskResponse.model_validate(t).model_copy(update={"tracked_seconds": secs})
         for t, secs in tasks
     ]
-    return TaskListResponse(items=items, total=len(items))
+    return TaskListResponse(
+        data=items, meta=PageMeta(total=total, limit=limit, offset=offset)
+    )
 
 
 @router.get(
@@ -170,4 +173,4 @@ async def list_sessions(
 ) -> WorkSessionListResponse:
     sessions = await service.list_sessions(task_id=task_id, user_id=subject.user_id)
     items = [WorkSessionResponse.model_validate(s) for s in sessions]
-    return WorkSessionListResponse(items=items, total=len(items))
+    return WorkSessionListResponse(data=items)

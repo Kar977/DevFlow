@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
+from devflow_api.core.schemas.pagination import PageMeta
 from devflow_api.core.schemas.reports import (
     CreateReportRequest,
     ReportListResponse,
@@ -67,7 +68,9 @@ async def list_reports(
         user_id=subject.user_id, limit=limit, offset=offset
     )
     items = [ReportResponse.model_validate(r) for r in reports]
-    return ReportListResponse(items=items, total=total)
+    return ReportListResponse(
+        data=items, meta=PageMeta(total=total, limit=limit, offset=offset)
+    )
 
 
 @router.get(

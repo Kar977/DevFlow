@@ -154,7 +154,7 @@ def test_list_installations_endpoint(client: TestClient) -> None:
         f"/api/v1/integrations/github/app/installations?organization_id={ORG_ID}"
     )
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["account_login"] == "octo-org"
 
@@ -182,7 +182,7 @@ def test_refresh_repos_endpoint(client: TestClient) -> None:
 def test_list_repositories_endpoint(client: TestClient, stub: StubAppService) -> None:
     response = client.get(f"/api/v1/repositories?organization_id={ORG_ID}&tracked=true")
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response.json()["data"]
     assert items[0]["full_name"] == "octo-org/api"
     assert stub.calls["list_repositories"] is True
 

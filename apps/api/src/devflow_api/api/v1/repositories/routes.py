@@ -33,7 +33,7 @@ async def list_repositories(
         org_id=organization_id, user_id=subject.user_id, tracked=tracked
     )
     return RepositoryListResponse(
-        items=[RepositoryResponse.model_validate(row) for row in rows]
+        data=[RepositoryResponse.model_validate(row) for row in rows]
     )
 
 

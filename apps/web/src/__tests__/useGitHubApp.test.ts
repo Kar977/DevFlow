@@ -24,7 +24,7 @@ describe("useInstallationsQuery", () => {
         const orgId = new URL(request.url).searchParams.get("organization_id");
         expect(orgId).toBe(ORG_ID);
         return HttpResponse.json({
-          items: [
+          data: [
             {
               id: "inst-uuid",
               installation_id: 42,
@@ -59,7 +59,7 @@ describe("useSyncRunsQuery", () => {
     server.use(
       http.get("*/integrations/github/sync-runs", () =>
         HttpResponse.json({
-          items: [
+          data: [
             {
               id: "run-1",
               status: "completed",

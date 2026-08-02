@@ -22,7 +22,7 @@ describe("OrgSwitcher", () => {
     server.use(
       http.get("*/organizations", () =>
         HttpResponse.json({
-          items: [{ id: "org-1", name: "My Workspace", slug: "my-workspace" }],
+          data: [{ id: "org-1", name: "My Workspace", slug: "my-workspace" }],
         })
       )
     );
@@ -38,7 +38,7 @@ describe("OrgSwitcher", () => {
     server.use(
       http.get("*/organizations", () =>
         HttpResponse.json({
-          items: [{ id: "org-2", name: "Team Alpha", slug: "team-alpha" }],
+          data: [{ id: "org-2", name: "Team Alpha", slug: "team-alpha" }],
         })
       )
     );
@@ -52,7 +52,7 @@ describe("OrgSwitcher", () => {
 
   it('shows "Brak organizacji" and "+" button when no orgs returned', async () => {
     server.use(
-      http.get("*/organizations", () => HttpResponse.json({ items: [] }))
+      http.get("*/organizations", () => HttpResponse.json({ data: [] }))
     );
 
     render(wrapper(React.createElement(OrgSwitcher)));

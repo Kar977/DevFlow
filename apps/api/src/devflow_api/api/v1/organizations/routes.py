@@ -52,7 +52,7 @@ async def list_organizations(
 ) -> OrganizationListResponse:
     orgs = await service.list_user_organizations(subject.user_id)
     items = [OrganizationResponse.model_validate(o) for o in orgs]
-    return OrganizationListResponse(items=items, total=len(items))
+    return OrganizationListResponse(data=items)
 
 
 @router.get(
@@ -133,7 +133,7 @@ async def list_members(
     service: OrganizationService = Depends(get_organization_service),
 ) -> MemberListResponse:
     items = await service.list_members(org_id=org_id, user_id=subject.user_id)
-    return MemberListResponse(items=items, total=len(items))
+    return MemberListResponse(data=items)
 
 
 @router.delete(

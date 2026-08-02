@@ -90,4 +90,6 @@ class PRDashboardMemberResponse(BaseModel):
 
 
 class PRDashboardMembersResponse(BaseModel):
-    items: list[PRDashboardMemberResponse]
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[PRDashboardMemberResponse]

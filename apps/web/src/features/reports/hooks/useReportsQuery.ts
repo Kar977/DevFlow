@@ -31,7 +31,10 @@ export function useReportsQuery() {
   return useQuery({
     queryKey: reportQueryKeys.list(),
     queryFn: () =>
-      apiClient.get("/reports").then((r) => r.data as { items: Report[]; total: number }),
+      apiClient.get("/reports").then((r) => {
+        const body = r.data as { data: Report[]; meta: { total: number } };
+        return { items: body.data, total: body.meta.total };
+      }),
     refetchInterval: (query) => getReportsRefetchInterval(query.state.data?.items),
   });
 }

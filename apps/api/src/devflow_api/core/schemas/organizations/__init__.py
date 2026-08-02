@@ -29,8 +29,9 @@ class OrganizationResponse(BaseModel):
 
 
 class OrganizationListResponse(BaseModel):
-    items: list[OrganizationResponse]
-    total: int
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[OrganizationResponse]
 
 
 class InviteMemberRequest(BaseModel):
@@ -50,5 +51,6 @@ class MemberResponse(BaseModel):
 
 
 class MemberListResponse(BaseModel):
-    items: list[MemberResponse]
-    total: int
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[MemberResponse]

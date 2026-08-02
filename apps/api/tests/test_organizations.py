@@ -251,8 +251,8 @@ def test_list_organizations_returns_200(
     response = client.get("/api/v1/organizations")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["name"] == "Acme"
+    assert "meta" not in body
+    assert body["data"][0]["name"] == "Acme"
 
 
 # ---------------------------------------------------------------------------
@@ -459,9 +459,9 @@ def test_list_members_returns_200(
     response = client.get(f"/api/v1/organizations/{org.id}/members")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["role"] == "owner"
-    assert body["items"][0]["display_name"] == "Test User"
+    assert "meta" not in body
+    assert body["data"][0]["role"] == "owner"
+    assert body["data"][0]["display_name"] == "Test User"
 
 
 def test_list_members_falls_back_to_email_when_full_name_missing(

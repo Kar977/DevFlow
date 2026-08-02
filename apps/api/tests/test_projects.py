@@ -88,6 +88,13 @@ class FakeProjectRepository:
         items = [p for p in self._projects.values() if p.org_id in org_ids]
         return items[offset : offset + limit]
 
+    async def count_for_org(self, org_id: uuid.UUID) -> int:
+        return len([p for p in self._projects.values() if p.org_id == org_id])
+
+    async def count_for_user(self, user_id: uuid.UUID) -> int:
+        org_ids = self._org_repo.member_org_ids(user_id)
+        return len([p for p in self._projects.values() if p.org_id in org_ids])
+
     async def update(
         self,
         project: Project,
@@ -209,8 +216,8 @@ def test_list_projects_returns_200(
     response = client.get("/api/v1/projects")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["name"] == "API"
+    assert body["meta"] == {"total": 1, "limit": 50, "offset": 0}
+    assert body["data"][0]["name"] == "API"
 
 
 def test_list_projects_filtered_by_org_returns_200(
@@ -223,7 +230,7 @@ def test_list_projects_filtered_by_org_returns_200(
     asyncio.run(_create_project(project_repo, org_repo, org_id=org_id, user_id=user_id))
     response = client.get(f"/api/v1/projects?org_id={org_id}")
     assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert response.json()["meta"]["total"] == 1
 
 
 # ---------------------------------------------------------------------------

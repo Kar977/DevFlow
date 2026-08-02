@@ -83,7 +83,7 @@ async def app_installations(
         org_id=organization_id, user_id=subject.user_id
     )
     return InstallationListResponse(
-        items=[InstallationResponse.model_validate(row) for row in rows]
+        data=[InstallationResponse.model_validate(row) for row in rows]
     )
 
 
@@ -206,7 +206,7 @@ async def sync_runs(
 ) -> SyncRunListResponse:
     runs = await service.list_runs(org_id=organization_id, user_id=subject.user_id)
     return SyncRunListResponse(
-        items=[SyncRunResponse.model_validate(run) for run in runs]
+        data=[SyncRunResponse.model_validate(run) for run in runs]
     )
 
 

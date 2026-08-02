@@ -312,7 +312,7 @@ def test_list_members_marks_unlinked() -> None:
     service = _service([], org_repo=org_repo, conn_repo=conn_repo, user_repo=user_repo)
     result = asyncio.run(service.list_members(org_id=ORG_ID, user_id=USER_ID))
 
-    by_id = {item.user_id: item for item in result.items}
+    by_id = {item.user_id: item for item in result.data}
     assert by_id[linked_id].github_login == "octocat"
     assert by_id[unlinked_id].github_login is None
     assert by_id[unlinked_id].display_name == "unlinked@example.com"
@@ -367,6 +367,6 @@ def test_pr_dashboard_members_route_returns_items() -> None:
             f"/api/v1/metrics/pr-dashboard/members?organization_id={ORG_ID}"
         )
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["display_name"] == "Me"

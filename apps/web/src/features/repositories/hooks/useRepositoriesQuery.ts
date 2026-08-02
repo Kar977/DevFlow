@@ -32,7 +32,10 @@ export function useRepositoriesQuery(
             ...(options.tracked !== undefined ? { tracked: options.tracked } : {}),
           },
         })
-        .then((r) => r.data as { items: Repository[] }),
+        .then((r) => {
+          const body = r.data as { data: Repository[] };
+          return { items: body.data };
+        }),
   });
 }
 

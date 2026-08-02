@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from devflow_api.core.schemas.pagination import PageMeta
+
 _STATUS_PATTERN = "^(backlog|todo|in_progress|review|done|cancelled)$"
 _PRIORITY_PATTERN = "^(low|medium|high|critical)$"
 
@@ -51,8 +53,8 @@ class TaskResponse(BaseModel):
 
 
 class TaskListResponse(BaseModel):
-    items: list[TaskResponse]
-    total: int
+    data: list[TaskResponse]
+    meta: PageMeta
 
 
 class WorkSessionResponse(BaseModel):
@@ -68,5 +70,6 @@ class WorkSessionResponse(BaseModel):
 
 
 class WorkSessionListResponse(BaseModel):
-    items: list[WorkSessionResponse]
-    total: int
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[WorkSessionResponse]

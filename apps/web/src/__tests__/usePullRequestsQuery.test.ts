@@ -42,7 +42,10 @@ describe("usePullRequestsQuery", () => {
         capturedOrgId = new URL(request.url).searchParams.get(
           "organization_id"
         );
-        return HttpResponse.json({ items: [samplePR], total: 1 });
+        return HttpResponse.json({
+          data: [samplePR],
+          meta: { total: 1, limit: 50, offset: 0 },
+        });
       })
     );
     const { result } = renderHook(() => usePullRequestsQuery(ORG_ID), {
@@ -60,7 +63,7 @@ describe("usePullRequestsQuery", () => {
   it("returns empty list when no PRs", async () => {
     server.use(
       http.get("*/pull-requests", () =>
-        HttpResponse.json({ items: [], total: 0 })
+        HttpResponse.json({ data: [], meta: { total: 0, limit: 50, offset: 0 } })
       )
     );
     const { result } = renderHook(() => usePullRequestsQuery(ORG_ID), {
