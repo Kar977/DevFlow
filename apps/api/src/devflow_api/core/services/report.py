@@ -38,6 +38,7 @@ from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.repositories.report import ReportRepository
 from devflow_api.core.services.metrics import MetricsService
+from devflow_api.core.services.report_export import render_csv, render_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,29 @@ class ReportService:
     ) -> None:
         report = await self.get_report(report_id=report_id, user_id=user_id)
         await self._report_repo.delete(report)
+
+    async def export_report(
+        self,
+        *,
+        report_id: uuid.UUID,
+        user_id: uuid.UUID,
+        fmt: str,
+    ) -> tuple[bytes, str, str]:
+        """Render a ready report as CSV/PDF; returns (content, media_type, filename)."""
+        report = await self.get_report(report_id=report_id, user_id=user_id)
+        if report.status != "ready":
+            raise AppError(
+                code="not_ready",
+                message="Report is not ready yet.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        if fmt == "csv":
+            return (
+                render_csv(report).encode("utf-8"),
+                "text/csv",
+                f"report-{report.id}.csv",
+            )
+        return render_pdf(report), "application/pdf", f"report-{report.id}.pdf"
 
 
 def get_report_service(

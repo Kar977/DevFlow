@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 
 from devflow_api.core.schemas.pagination import PageMeta
 from devflow_api.core.schemas.reports import (
@@ -85,6 +85,26 @@ async def get_report(
 ) -> ReportResponse:
     report = await service.get_report(report_id=report_id, user_id=subject.user_id)
     return ReportResponse.model_validate(report)
+
+
+@router.get(
+    "/{report_id}/export",
+    summary="Export a ready report as CSV or PDF",
+)
+async def export_report(
+    report_id: uuid.UUID,
+    format: str = Query(..., pattern="^(csv|pdf)$"),  # noqa: A002
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: ReportService = Depends(get_report_service),
+) -> Response:
+    content, media_type, filename = await service.export_report(
+        report_id=report_id, user_id=subject.user_id, fmt=format
+    )
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete(
