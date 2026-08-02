@@ -169,20 +169,22 @@ backlog → todo → in_progress → review → done
 ```
 
 The service does not strictly enforce transitions — a user can set any status directly (e.g. backlog → done).
-Tasks with `source: 'github_pr'` or `source: 'github_issue'` have status synchronized from GitHub.
+
+**Not yet implemented:** the planned `source: 'github_pr' | 'github_issue'` field for
+auto-synced status — `Task` currently only has a free-text `github_pr_url` column,
+not a `source` enum, so GitHub-origin tasks are not distinguished from manual ones.
 
 ---
 
-## Files to Create
+## Implementation Status
 
-- `routes.py` — route handlers (replace current placeholder)
-- `../../../core/schemas/tasks/` — `CreateTaskRequest`, `UpdateTaskRequest`, `TaskResponse`, `WorkSessionResponse`
-- `../../../core/services/task.py` — `TaskService`
-- `../../../core/repositories/task.py` — `TaskRepository`
-- `../../../core/repositories/work_session.py` — `WorkSessionRepository`
-- `../../../core/models/task.py` — `Task` model
-- `../../../core/models/work_session.py` — `WorkSession` model
-- Alembic migration: `tasks` and `work_sessions` tables
+Implemented — see `routes.py`, `../../../core/schemas/tasks/`
+(`CreateTaskRequest`, `UpdateTaskRequest`, `TaskResponse`, `WorkSessionResponse`),
+`../../../core/services/task.py` (`TaskService`),
+`../../../core/repositories/task.py` (`TaskRepository`),
+`../../../core/repositories/work_session.py` (`WorkSessionRepository`),
+`../../../core/models/task.py`, `../../../core/models/work_session.py`,
+and Alembic migration `0004_create_tasks_and_work_sessions.py`.
 
 ## URL Naming Note
 

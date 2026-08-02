@@ -124,34 +124,21 @@ Response `200 OK`: updated `UserResponse`.
 
 ---
 
-## Files to Create
+## Implementation Status
 
-- `routes.py` — route handlers (replace current placeholder)
-- `../../../core/schemas/auth/` — schemas (described in `core/schemas/README.md`)
-- `../../../core/services/auth.py` — `AuthService`
-- `../../../core/repositories/user.py` — `UserRepository`
-- `../../../core/repositories/refresh_token.py` — `RefreshTokenRepository`
-- `../../../core/models/user.py` — `User` model
-- `../../../core/models/refresh_token.py` — `RefreshToken` model
-- Alembic migration: `users` and `refresh_tokens` tables
+Implemented — see `routes.py`, `../../../core/schemas/auth/`,
+`../../../core/services/auth.py` (`AuthService`),
+`../../../core/repositories/user.py` (`UserRepository`),
+`../../../core/repositories/refresh_token.py` (`RefreshTokenRepository`),
+`../../../core/models/user.py`, `../../../core/models/refresh_token.py`,
+and Alembic migration `0001_create_users_and_refresh_tokens.py`.
 
-## Dependencies to Add (`pyproject.toml`)
+JWT is signed/verified with `PyJWT`, passwords hashed with `bcrypt` (both in
+`../../../core/security.py`) — not `python-jose`/`passlib` as originally
+sketched here.
 
-```toml
-python-jose = {extras = ["cryptography"], version = ">=3.3"}
-passlib = {extras = ["bcrypt"], version = ">=1.7"}
-```
+## `core/security.py`
 
-## Filling in `core/security.py`
-
-The `get_current_subject()` function currently returns `501`. Replace it with:
-
-```python
-async def get_current_subject(
-    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
-    session: AsyncSession = Depends(get_session),
-) -> AuthenticatedSubject:
-    # Decode JWT (python-jose)
-    # Verify signature and expiry
-    # Return AuthenticatedSubject(subject_id=UUID(payload["sub"]))
-```
+`get_current_subject()` is a real dependency (not a `501` placeholder): it
+decodes and verifies the bearer JWT via `decode_access_token()` and returns
+an `AuthenticatedSubject`. See `../../../core/security.py`.

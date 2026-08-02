@@ -187,21 +187,22 @@ Metrics queries are expensive — aggregations over many rows. Results must be c
 
 **Cache key:** `metrics:{user_id}:{endpoint}:{date_from}:{date_to}`
 
-**TTL:** 5 minutes (short because the user may have just closed a task and want to see the effect)
+**TTL:** 60 seconds (`DEVFLOW_API_METRICS_CACHE_TTL_SECONDS`, `../../../core/config.py`).
 
-Implementation:
-- Stage 1: in-memory dict in `MetricsService` with `datetime` expiry
-- Stage 2: Redis (once Redis is added to the infrastructure)
+Implementation: `../../../core/cache.py` — `CacheBackend` Protocol with
+`InMemoryCache` (default) and `RedisCache` (used when
+`DEVFLOW_API_REDIS_URL` is set; Redis is available in
+`infra/docker-compose.yml`).
 
-Cache should be invalidated when:
-- A task is closed (`status` → `done`)
-- A work session ends (`WorkSession.stop`)
+**Not yet implemented:** invalidation on write (task closed, work session
+stopped) — the cache currently relies on TTL expiry only, so metrics can lag
+up to 60 seconds behind a just-completed action.
 
 ---
 
-## Files to Create
+## Implementation Status
 
-- `routes.py` — route handlers (replace current placeholder)
-- `../../../core/schemas/metrics/` — response schemas (described in `core/schemas/README.md`)
-- `../../../core/services/metrics.py` — `MetricsService`
-- No new models/repositories — `MetricsService` uses `TaskRepository` and `WorkSessionRepository`
+Implemented — see `routes.py`, `../../../core/schemas/metrics/`, and
+`../../../core/services/metrics.py` (`MetricsService`). No dedicated model or
+repository — `MetricsService` reads through `TaskRepository` and
+`WorkSessionRepository`.

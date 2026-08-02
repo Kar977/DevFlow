@@ -8,10 +8,3 @@ class ApiStatusResponse(BaseModel):
 
     version: str
     status: str
-
-
-class FeatureStatusResponse(BaseModel):
-    """Status response for a planned feature area."""
-
-    feature: str
-    status: str
