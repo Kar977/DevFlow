@@ -400,6 +400,94 @@ def test_delete_report_other_user_returns_403(
 
 
 # ---------------------------------------------------------------------------
+# Tests — export (GET /api/v1/reports/{id}/export)
+# ---------------------------------------------------------------------------
+
+
+async def _make_ready_report(
+    report_repo: FakeReportRepository,
+    *,
+    user_id: uuid.UUID,
+    payload: dict[str, Any] | None = None,
+) -> Report:
+    report = await report_repo.create(
+        user_id=user_id, report_type="weekly_summary", fmt="json"
+    )
+    default_payload = {
+        "tasks_completed": 3,
+        "estimation_accuracy": {"sample_size": 2},
+    }
+    return await report_repo.update_status(
+        report,
+        status="ready",
+        payload=payload or default_payload,
+        generated_at=datetime.now(UTC),
+    )
+
+
+def test_export_report_csv_returns_csv_content(
+    client: TestClient,
+    report_repo: FakeReportRepository,
+    user_id: uuid.UUID,
+) -> None:
+    report = asyncio.run(_make_ready_report(report_repo, user_id=user_id))
+    response = client.get(f"/api/v1/reports/{report.id}/export?format=csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    body = response.text
+    assert "tasks_completed" in body
+    assert "estimation_accuracy.sample_size" in body
+
+
+def test_export_report_pdf_returns_pdf_bytes(
+    client: TestClient,
+    report_repo: FakeReportRepository,
+    user_id: uuid.UUID,
+) -> None:
+    report = asyncio.run(_make_ready_report(report_repo, user_id=user_id))
+    response = client.get(f"/api/v1/reports/{report.id}/export?format=pdf")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+
+def test_export_report_not_ready_returns_409(
+    client: TestClient,
+    service: ReportService,
+    user_id: uuid.UUID,
+) -> None:
+    report = _make_report(service, user_id=user_id)  # still "pending"
+    response = client.get(f"/api/v1/reports/{report.id}/export?format=csv")
+    assert response.status_code == 409
+
+
+def test_export_report_invalid_format_returns_422(
+    client: TestClient,
+    report_repo: FakeReportRepository,
+    user_id: uuid.UUID,
+) -> None:
+    report = asyncio.run(_make_ready_report(report_repo, user_id=user_id))
+    response = client.get(f"/api/v1/reports/{report.id}/export?format=xml")
+    assert response.status_code == 422
+
+
+def test_export_report_nonexistent_returns_404(client: TestClient) -> None:
+    response = client.get(f"/api/v1/reports/{uuid.uuid4()}/export?format=csv")
+    assert response.status_code == 404
+
+
+def test_export_report_other_user_returns_403(
+    client: TestClient,
+    report_repo: FakeReportRepository,
+    other_user_id: uuid.UUID,
+) -> None:
+    report = asyncio.run(_make_ready_report(report_repo, user_id=other_user_id))
+    response = client.get(f"/api/v1/reports/{report.id}/export?format=csv")
+    assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # Unit test — _generate_payload (weekly_summary)
 # ---------------------------------------------------------------------------
 
