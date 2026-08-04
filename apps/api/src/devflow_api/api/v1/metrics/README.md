@@ -69,7 +69,7 @@ Response `200 OK`:
 
 ### `GET /api/v1/metrics/time-tracking`
 
-Daily active work hours (sum of `WorkSession.duration_minutes` per day).
+Daily active work hours (sum of `WorkSession.duration_seconds` per day).
 
 Query params:
 - `date_from`, `date_to`

@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
 from devflow_api.core.models.organization import Organization
-from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.user import UserRepository
+from devflow_api.core.schemas.organizations import MemberResponse
 
 
 def _slugify(name: str) -> str:
@@ -136,7 +136,7 @@ class OrganizationService:
         inviter_id: uuid.UUID,
         email: str,
         role: str,
-    ) -> OrganizationMember:
+    ) -> MemberResponse:
         await self.get_organization(org_id=org_id, user_id=inviter_id)
         inviter_member = await self._org_repo.get_member(org_id, inviter_id)
         if not inviter_member or inviter_member.role not in ("owner", "admin"):
@@ -165,15 +165,40 @@ class OrganizationService:
                 message="User is already a member of this organization.",
                 status_code=status.HTTP_409_CONFLICT,
             )
-        return await self._org_repo.add_member(
+        member = await self._org_repo.add_member(
             org_id=org_id, user_id=target_user.id, role=role
+        )
+        return MemberResponse(
+            id=member.id,
+            org_id=member.org_id,
+            user_id=member.user_id,
+            role=member.role,
+            joined_at=member.joined_at,
+            display_name=target_user.full_name or target_user.email,
         )
 
     async def list_members(
         self, *, org_id: uuid.UUID, user_id: uuid.UUID
-    ) -> list[OrganizationMember]:
+    ) -> list[MemberResponse]:
         await self.get_organization(org_id=org_id, user_id=user_id)
-        return await self._org_repo.list_members(org_id)
+        members = await self._org_repo.list_members(org_id)
+        items: list[MemberResponse] = []
+        for member in members:
+            user = await self._user_repo.get_by_id(member.user_id)
+            display_name = (
+                (user.full_name or user.email) if user else str(member.user_id)
+            )
+            items.append(
+                MemberResponse(
+                    id=member.id,
+                    org_id=member.org_id,
+                    user_id=member.user_id,
+                    role=member.role,
+                    joined_at=member.joined_at,
+                    display_name=display_name,
+                )
+            )
+        return items
 
     async def remove_member(
         self,

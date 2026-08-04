@@ -14,6 +14,7 @@ export interface Task {
   created_by: string;
   created_at: string;
   updated_at: string;
+  tracked_seconds?: number;
 }
 
 interface TasksParams {

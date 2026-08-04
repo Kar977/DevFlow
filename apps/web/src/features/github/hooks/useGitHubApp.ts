@@ -56,19 +56,6 @@ export function useInstallAppMutation(orgId: string | null) {
   });
 }
 
-export function useSetupInstallationMutation() {
-  return useMutation({
-    mutationFn: (data: {
-      installation_id: number;
-      setup_action: string;
-      state: string;
-    }) =>
-      apiClient
-        .post("/integrations/github/app/setup", data)
-        .then((r) => r.data as Installation),
-  });
-}
-
 export function useDisconnectInstallation(orgId: string | null) {
   const qc = useQueryClient();
   return useMutation({

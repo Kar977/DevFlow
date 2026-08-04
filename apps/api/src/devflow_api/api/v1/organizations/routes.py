@@ -114,13 +114,12 @@ async def invite_member(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: OrganizationService = Depends(get_organization_service),
 ) -> MemberResponse:
-    member = await service.invite_member(
+    return await service.invite_member(
         org_id=org_id,
         inviter_id=subject.user_id,
         email=body.email,
         role=body.role,
     )
-    return MemberResponse.model_validate(member)
 
 
 @router.get(
@@ -133,8 +132,7 @@ async def list_members(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: OrganizationService = Depends(get_organization_service),
 ) -> MemberListResponse:
-    members = await service.list_members(org_id=org_id, user_id=subject.user_id)
-    items = [MemberResponse.model_validate(m) for m in members]
+    items = await service.list_members(org_id=org_id, user_id=subject.user_id)
     return MemberListResponse(items=items, total=len(items))
 
 

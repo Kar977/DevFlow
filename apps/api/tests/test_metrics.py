@@ -53,13 +53,14 @@ def _session(
     started_at: datetime,
     duration_minutes: int | None,
 ) -> WorkSession:
+    duration_seconds = duration_minutes * 60 if duration_minutes is not None else None
     return WorkSession(
         id=uuid.uuid4(),
         task_id=task_id or uuid.uuid4(),
         user_id=user_id,
         started_at=started_at,
         ended_at=started_at + timedelta(minutes=duration_minutes or 0),
-        duration_minutes=duration_minutes,
+        duration_seconds=duration_seconds,
         created_at=started_at,
     )
 

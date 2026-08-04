@@ -19,11 +19,20 @@ export const reportQueryKeys = {
   detail: (id: string) => [...reportQueryKeys.all, "detail", id] as const,
 };
 
+/** Polls every 3s while any report is still pending/generating, otherwise stops. */
+export function getReportsRefetchInterval(items: Report[] | undefined): number | false {
+  const active = items?.some(
+    (r) => r.status === "pending" || r.status === "generating"
+  );
+  return active ? 3000 : false;
+}
+
 export function useReportsQuery() {
   return useQuery({
     queryKey: reportQueryKeys.list(),
     queryFn: () =>
       apiClient.get("/reports").then((r) => r.data as { items: Report[]; total: number }),
+    refetchInterval: (query) => getReportsRefetchInterval(query.state.data?.items),
   });
 }
 

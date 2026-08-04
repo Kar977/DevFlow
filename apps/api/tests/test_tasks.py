@@ -14,6 +14,7 @@ from devflow_api.core.models.task import Task
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.task import TaskService, get_task_service
+from devflow_api.core.unset import UNSET, Unset
 from devflow_api.main import create_app
 
 # ---------------------------------------------------------------------------
@@ -126,29 +127,29 @@ class FakeTaskRepository:
         task: Task,
         *,
         title: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
         status: str | None = None,
         priority: str | None = None,
-        estimate_minutes: int | None = None,
-        assignee_id: uuid.UUID | None = None,
-        due_date: datetime | None = None,
-        github_pr_url: str | None = None,
+        estimate_minutes: int | None | Unset = UNSET,
+        assignee_id: uuid.UUID | None | Unset = UNSET,
+        due_date: datetime | None | Unset = UNSET,
+        github_pr_url: str | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
-        if description is not None:
+        if not isinstance(description, Unset):
             task.description = description
         if status is not None:
             task.status = status
         if priority is not None:
             task.priority = priority
-        if estimate_minutes is not None:
+        if not isinstance(estimate_minutes, Unset):
             task.estimate_minutes = estimate_minutes
-        if assignee_id is not None:
+        if not isinstance(assignee_id, Unset):
             task.assignee_id = assignee_id
-        if due_date is not None:
+        if not isinstance(due_date, Unset):
             task.due_date = due_date
-        if github_pr_url is not None:
+        if not isinstance(github_pr_url, Unset):
             task.github_pr_url = github_pr_url
         return task
 
@@ -169,7 +170,7 @@ class FakeWorkSessionRepository:
             user_id=user_id,
             started_at=started_at,
             ended_at=None,
-            duration_minutes=None,
+            duration_seconds=None,
             created_at=datetime.now(UTC),
         )
         self._sessions[session.id] = session
@@ -191,11 +192,23 @@ class FakeWorkSessionRepository:
     async def list_for_task(self, task_id: uuid.UUID) -> list[WorkSession]:
         return [s for s in self._sessions.values() if s.task_id == task_id]
 
+    async def tracked_seconds_for_tasks(
+        self, task_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        totals: dict[uuid.UUID, int] = {}
+        for session in self._sessions.values():
+            if session.task_id not in task_ids or not session.duration_seconds:
+                continue
+            totals[session.task_id] = (
+                totals.get(session.task_id, 0) + session.duration_seconds
+            )
+        return totals
+
     async def stop(
-        self, session: WorkSession, *, ended_at: datetime, duration_minutes: int
+        self, session: WorkSession, *, ended_at: datetime, duration_seconds: int
     ) -> WorkSession:
         session.ended_at = ended_at
-        session.duration_minutes = duration_minutes
+        session.duration_seconds = duration_seconds
         return session
 
     def seed_active(
@@ -207,7 +220,27 @@ class FakeWorkSessionRepository:
             user_id=user_id,
             started_at=started_at,
             ended_at=None,
-            duration_minutes=None,
+            duration_seconds=None,
+            created_at=datetime.now(UTC),
+        )
+        self._sessions[session.id] = session
+        return session
+
+    def seed_completed(
+        self,
+        *,
+        task_id: uuid.UUID,
+        user_id: uuid.UUID,
+        started_at: datetime,
+        duration_seconds: int,
+    ) -> WorkSession:
+        session = WorkSession(
+            id=uuid.uuid4(),
+            task_id=task_id,
+            user_id=user_id,
+            started_at=started_at,
+            ended_at=started_at + timedelta(seconds=duration_seconds),
+            duration_seconds=duration_seconds,
             created_at=datetime.now(UTC),
         )
         self._sessions[session.id] = session
@@ -373,6 +406,34 @@ def test_list_tasks_missing_project_returns_422(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_list_tasks_returns_accumulated_tracked_seconds(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Multiple start/stop cycles on a task must sum, not overwrite, in the list."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    session_repo.seed_completed(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(hours=2),
+        duration_seconds=600,
+    )
+    session_repo.seed_completed(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(hours=1),
+        duration_seconds=300,
+    )
+    response = client.get(f"/api/v1/tasks?project_id={project_id}")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["tracked_seconds"] == 900
+
+
 # ---------------------------------------------------------------------------
 # Tests — get / update / delete
 # ---------------------------------------------------------------------------
@@ -416,6 +477,49 @@ def test_update_task_invalid_status_returns_422(
     task = _make_task(service, project_id=project_id, user_id=user_id)
     response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "nope"})
     assert response.status_code == 422
+
+
+def test_update_task_can_unassign(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """PATCH with assignee_id: null must clear the field, not leave it unchanged."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    assign_response = client.patch(
+        f"/api/v1/tasks/{task.id}", json={"assignee_id": str(user_id)}
+    )
+    assert assign_response.status_code == 200
+    assert assign_response.json()["assignee_id"] == str(user_id)
+
+    unassign_response = client.patch(
+        f"/api/v1/tasks/{task.id}", json={"assignee_id": None}
+    )
+    assert unassign_response.status_code == 200
+    assert unassign_response.json()["assignee_id"] is None
+
+
+def test_update_task_omitting_field_leaves_it_unchanged(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A PATCH that omits a field must not clear it (distinct from explicit null)."""
+    task = asyncio.run(
+        service.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="Task",
+            estimate_minutes=45,
+        )
+    )
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"title": "Renamed"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Renamed"
+    assert body["estimate_minutes"] == 45
 
 
 def test_delete_task_returns_204(
@@ -540,7 +644,28 @@ def test_stop_session_computes_duration(
     assert response.status_code == 200
     body = response.json()
     assert body["ended_at"] is not None
-    assert body["duration_minutes"] == 90
+    assert body["duration_seconds"] == 90 * 60
+
+
+def test_stop_session_sub_minute_interval_is_not_lost(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A short start/stop cycle (<1 min) must still record real seconds, not 0."""
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    session_repo.seed_active(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(seconds=45),
+    )
+    response = client.post(f"/api/v1/tasks/{task.id}/stop")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duration_seconds"] >= 45
+    assert body["duration_seconds"] < 60
 
 
 def test_stop_session_without_active_returns_404(

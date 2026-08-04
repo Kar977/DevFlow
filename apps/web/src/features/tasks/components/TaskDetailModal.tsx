@@ -8,6 +8,10 @@ import {
 } from "@/shared/ui";
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 import { useUpdateTask, useDeleteTask } from "@/features/tasks/hooks/useTaskMutations";
+import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
+import { useOrgStore } from "@/shared/store/orgStore";
+
+const UNASSIGNED = "__unassigned__";
 
 const STATUS_OPTIONS = [
   { value: "backlog", label: "Backlog" },
@@ -30,6 +34,7 @@ const UpdateSchema = z.object({
   description: z.string().optional(),
   status: z.enum(["backlog", "todo", "in_progress", "review", "done", "cancelled"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
+  assignee_id: z.string().nullable().optional(),
 });
 type UpdateData = z.infer<typeof UpdateSchema>;
 
@@ -39,9 +44,20 @@ interface Props {
   onClose: () => void;
 }
 
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("pl-PL", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 export function TaskDetailModal({ task, open, onClose }: Props) {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
+  const { activeOrgId } = useOrgStore();
+  const { data: members } = useOrgMembersQuery(activeOrgId);
+  const creator = members?.find((m) => m.user_id === task.created_by);
 
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<UpdateData>({
     resolver: zodResolver(UpdateSchema),
@@ -50,11 +66,13 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
       description: task.description ?? "",
       status: task.status,
       priority: task.priority,
+      assignee_id: task.assignee_id ?? null,
     },
   });
 
   const currentStatus = watch("status");
   const currentPriority = watch("priority");
+  const currentAssignee = watch("assignee_id");
 
   function onSubmit(data: UpdateData) {
     updateTask.mutate({ taskId: task.id, data }, { onSuccess: onClose });
@@ -121,6 +139,32 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
               </Select>
             </div>
           </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Przypisano do</Label>
+            <Select
+              value={currentAssignee ?? UNASSIGNED}
+              onValueChange={(v) =>
+                setValue("assignee_id", v === UNASSIGNED ? null : v)
+              }
+            >
+              <SelectTrigger aria-label="Przypisano do">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED}>Nieprzypisane</SelectItem>
+                {members?.map((m) => (
+                  <SelectItem key={m.user_id} value={m.user_id}>
+                    {m.display_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Utworzono przez {creator?.display_name ?? "—"}, {formatDate(task.created_at)}
+          </p>
 
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleteTask.isPending}>

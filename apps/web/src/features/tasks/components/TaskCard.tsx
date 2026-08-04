@@ -1,4 +1,8 @@
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
+import { useTaskTrackedSeconds } from "@/features/tasks/hooks/useTaskTrackedSeconds";
+import { formatTrackedTime } from "@/features/tasks/lib/trackedTime";
+import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
+import { useOrgStore } from "@/shared/store/orgStore";
 import { TimerButton } from "./TimerButton";
 
 const statusColors: Record<Task["status"], string> = {
@@ -23,6 +27,11 @@ interface Props {
 }
 
 export function TaskCard({ task, onClick }: Props) {
+  const trackedSeconds = useTaskTrackedSeconds(task);
+  const { activeOrgId } = useOrgStore();
+  const { data: members } = useOrgMembersQuery(activeOrgId);
+  const assignee = members?.find((m) => m.user_id === task.assignee_id);
+
   return (
     <div
       className="flex items-center justify-between rounded-lg border border-border bg-card p-4 hover:bg-accent/50 cursor-pointer transition-colors"
@@ -39,6 +48,14 @@ export function TaskCard({ task, onClick }: Props) {
           </span>
           {task.estimate_minutes && (
             <span className="text-xs text-muted-foreground">{task.estimate_minutes} min</span>
+          )}
+          {trackedSeconds > 0 && (
+            <span className="text-xs text-muted-foreground">
+              ⏱ {formatTrackedTime(trackedSeconds)}
+            </span>
+          )}
+          {assignee && (
+            <span className="text-xs text-muted-foreground">👤 {assignee.display_name}</span>
           )}
         </div>
       </div>

@@ -146,7 +146,7 @@ class WorkSession(Base):
     user_id: UUID (FK → users.id, not null, indexed)
     started_at: datetime (not null)
     ended_at: datetime | None           ← None = active session
-    duration_minutes: int | None        ← filled automatically on stop
+    duration_seconds: int | None        ← filled automatically on stop
     created_at: datetime
 ```
 

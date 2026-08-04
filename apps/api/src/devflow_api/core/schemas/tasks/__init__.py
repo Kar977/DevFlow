@@ -45,6 +45,7 @@ class TaskResponse(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    tracked_seconds: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -60,7 +61,7 @@ class WorkSessionResponse(BaseModel):
     user_id: uuid.UUID
     started_at: datetime
     ended_at: datetime | None
-    duration_minutes: int | None
+    duration_seconds: int | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -20,4 +20,10 @@ describe("KpiCard", () => {
     render(<KpiCard title="Rate" value={100} delta={0} />);
     expect(screen.getByText("+0.0%")).toBeInTheDocument();
   });
+
+  it("renders no delta indicator when delta is omitted", () => {
+    render(<KpiCard title="Stale PRs" value={3} />);
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+  });
 });

@@ -77,11 +77,11 @@ def _completed_in(task: Task, start: datetime, end: datetime) -> bool:
     return task.status == "done" and start <= _as_utc(task.updated_at) <= end
 
 
-def _session_minutes_in(session: WorkSession, start: datetime, end: datetime) -> int:
-    if session.duration_minutes is None:
+def _session_minutes_in(session: WorkSession, start: datetime, end: datetime) -> float:
+    if session.duration_seconds is None:
         return 0
     if start <= _as_utc(session.started_at) <= end:
-        return session.duration_minutes
+        return session.duration_seconds / 60
     return 0
 
 
@@ -247,7 +247,7 @@ class MetricsService:
         start, end = _resolve_period(date_from, date_to)
         sessions = await self._metrics_repo.get_work_sessions_for_user(user_id)
 
-        per_day: dict[date, int] = defaultdict(int)
+        per_day: dict[date, float] = defaultdict(float)
         for session in sessions:
             minutes = _session_minutes_in(session, start, end)
             if minutes:
@@ -329,10 +329,10 @@ class MetricsService:
         tasks = await self._metrics_repo.get_tasks_for_user(user_id)
         sessions = await self._metrics_repo.get_work_sessions_for_user(user_id)
 
-        actual_by_task: dict[uuid.UUID, int] = defaultdict(int)
+        actual_by_task: dict[uuid.UUID, float] = defaultdict(float)
         for session in sessions:
-            if session.duration_minutes:
-                actual_by_task[session.task_id] += session.duration_minutes
+            if session.duration_seconds:
+                actual_by_task[session.task_id] += session.duration_seconds / 60
 
         ratios: list[float] = []
         accurate = over = under = 0

@@ -145,8 +145,8 @@ async def start_session(task_id: UUID, user_id: UUID) -> WorkSession
 
 async def stop_session(task_id: UUID, user_id: UUID) -> WorkSession
     # Find active session
-    # Calculate duration_minutes = (now - started_at).seconds // 60
-    # Update session (ended_at, duration_minutes)
+    # Calculate duration_seconds = (now - started_at).total_seconds()
+    # Update session (ended_at, duration_seconds)
 
 async def list_sessions(task_id: UUID) -> list[WorkSession]
 ```

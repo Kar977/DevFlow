@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.models.work_session import WorkSession
@@ -45,14 +45,31 @@ class WorkSessionRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def tracked_seconds_for_tasks(
+        self, task_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        """Sum of work-session durations per task, in one grouped query."""
+        if not task_ids:
+            return {}
+        stmt = (
+            select(
+                WorkSession.task_id,
+                func.coalesce(func.sum(WorkSession.duration_seconds), 0),
+            )
+            .where(WorkSession.task_id.in_(task_ids))
+            .group_by(WorkSession.task_id)
+        )
+        result = await self._session.execute(stmt)
+        return {task_id: int(total) for task_id, total in result.all()}
+
     async def stop(
         self,
         session: WorkSession,
         *,
         ended_at: datetime,
-        duration_minutes: int,
+        duration_seconds: int,
     ) -> WorkSession:
         session.ended_at = ended_at
-        session.duration_minutes = duration_minutes
+        session.duration_seconds = duration_seconds
         await self._session.flush()
         return session

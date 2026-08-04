@@ -116,6 +116,9 @@ class FakeUserRepository:
     def __init__(self) -> None:
         self._store: dict[uuid.UUID, User] = {}
 
+    async def get_by_id(self, user_id: uuid.UUID) -> User | None:
+        return self._store.get(user_id)
+
     async def get_by_email(self, email: str) -> User | None:
         return next((u for u in self._store.values() if u.email == email), None)
 
@@ -400,6 +403,29 @@ def test_list_members_returns_200(
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["role"] == "owner"
+    assert body["items"][0]["display_name"] == "Test User"
+
+
+def test_list_members_falls_back_to_email_when_full_name_missing(
+    org_repo: FakeOrganizationRepository,
+) -> None:
+    import asyncio
+
+    now = datetime.now(UTC)
+    nameless_user_repo = FakeUserRepository()
+    user = User(
+        id=uuid.uuid4(),
+        email="noname@example.com",
+        hashed_password="x",
+        full_name=None,
+        created_at=now,
+        updated_at=now,
+    )
+    nameless_user_repo.seed(user)
+    org = asyncio.run(_create_org(org_repo, nameless_user_repo, user.id))
+    svc = OrganizationService(org_repo=org_repo, user_repo=nameless_user_repo)  # type: ignore[arg-type]
+    members = asyncio.run(svc.list_members(org_id=org.id, user_id=user.id))
+    assert members[0].display_name == "noname@example.com"
 
 
 def test_remove_member_returns_204(

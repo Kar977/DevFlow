@@ -15,10 +15,15 @@ const REPORT_TYPES = [
   { value: "productivity_overview", label: "Przegląd produktywności" },
 ] as const;
 
-const GenerateSchema = z.object({
-  type: z.enum(["weekly_summary", "project_status", "productivity_overview"]),
-  project_id: z.string().optional(),
-});
+export const GenerateSchema = z
+  .object({
+    type: z.enum(["weekly_summary", "project_status", "productivity_overview"]),
+    project_id: z.string().optional(),
+  })
+  .refine((d) => d.type !== "project_status" || !!d.project_id, {
+    path: ["project_id"],
+    message: "Wybierz projekt dla raportu statusu projektu.",
+  });
 type GenerateData = z.infer<typeof GenerateSchema>;
 
 interface Props {
@@ -30,7 +35,13 @@ export function GenerateReportModal({ open, onClose }: Props) {
   const generateReport = useGenerateReport();
   const { data: projects } = useProjectsQuery();
 
-  const { handleSubmit, setValue, watch, reset } = useForm<GenerateData>({
+  const {
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<GenerateData>({
     resolver: zodResolver(GenerateSchema),
     defaultValues: { type: "weekly_summary" },
   });
@@ -91,6 +102,9 @@ export function GenerateReportModal({ open, onClose }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+              {errors.project_id && (
+                <p className="text-sm text-red-500">{errors.project_id.message}</p>
+              )}
             </div>
           )}
 

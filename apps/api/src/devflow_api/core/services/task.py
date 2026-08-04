@@ -15,6 +15,7 @@ from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.repositories.task import TaskRepository
 from devflow_api.core.repositories.work_session import WorkSessionRepository
+from devflow_api.core.unset import UNSET, Unset
 
 
 class TaskService:
@@ -123,15 +124,19 @@ class TaskService:
         assignee_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Task]:
+    ) -> list[tuple[Task, int]]:
         await self._require_project_access(project_id=project_id, user_id=user_id)
-        return await self._task_repo.list_for_project(
+        tasks = await self._task_repo.list_for_project(
             project_id,
             status=status,
             assignee_id=assignee_id,
             limit=limit,
             offset=offset,
         )
+        tracked = await self._work_session_repo.tracked_seconds_for_tasks(
+            [t.id for t in tasks]
+        )
+        return [(task, tracked.get(task.id, 0)) for task in tasks]
 
     async def update_task(
         self,
@@ -139,18 +144,21 @@ class TaskService:
         task_id: uuid.UUID,
         user_id: uuid.UUID,
         title: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
         status: str | None = None,
         priority: str | None = None,
-        estimate_minutes: int | None = None,
-        assignee_id: uuid.UUID | None = None,
-        due_date: datetime | None = None,
-        github_pr_url: str | None = None,
+        estimate_minutes: int | None | Unset = UNSET,
+        assignee_id: uuid.UUID | None | Unset = UNSET,
+        due_date: datetime | None | Unset = UNSET,
+        github_pr_url: str | None | Unset = UNSET,
     ) -> Task:
         task, project = await self._get_accessible_task(
             task_id=task_id, user_id=user_id
         )
-        await self._validate_assignee(assignee_id=assignee_id, org_id=project.org_id)
+        if not isinstance(assignee_id, Unset):
+            await self._validate_assignee(
+                assignee_id=assignee_id, org_id=project.org_id
+            )
         return await self._task_repo.update(
             task,
             title=title,
@@ -199,9 +207,9 @@ class TaskService:
         started_at = active.started_at
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
-        duration_minutes = int((ended_at - started_at).total_seconds() // 60)
+        duration_seconds = int((ended_at - started_at).total_seconds())
         return await self._work_session_repo.stop(
-            active, ended_at=ended_at, duration_minutes=duration_minutes
+            active, ended_at=ended_at, duration_seconds=duration_seconds
         )
 
     async def list_sessions(
