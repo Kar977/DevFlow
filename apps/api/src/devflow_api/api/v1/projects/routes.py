@@ -69,8 +69,10 @@ async def get_project(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
-    project = await service.get_project(project_id=project_id, user_id=subject.user_id)
-    return ProjectResponse.model_validate(project)
+    project, stats = await service.get_project_detail(
+        project_id=project_id, user_id=subject.user_id
+    )
+    return ProjectResponse.model_validate(project).model_copy(update={"stats": stats})
 
 
 @router.patch(

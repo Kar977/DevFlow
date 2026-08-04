@@ -3,13 +3,14 @@
 import asyncio
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
+from devflow_api.core.models.task import Task
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.project import ProjectService, get_project_service
 from devflow_api.main import create_app
@@ -118,6 +119,42 @@ class FakeProjectRepository:
         project.status = "archived"
 
 
+class FakeTaskRepository:
+    def __init__(self) -> None:
+        self._tasks: dict[uuid.UUID, Task] = {}
+
+    def seed(self, task: Task) -> None:
+        self._tasks[task.id] = task
+
+    async def count_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ) -> int:
+        items = [t for t in self._tasks.values() if t.project_id == project_id]
+        if status is not None:
+            items = [t for t in items if t.status == status]
+        if assignee_id is not None:
+            items = [t for t in items if t.assignee_id == assignee_id]
+        return len(items)
+
+    async def count_overdue_for_project(
+        self, project_id: uuid.UUID, *, now: datetime
+    ) -> int:
+        return len(
+            [
+                t
+                for t in self._tasks.values()
+                if t.project_id == project_id
+                and t.due_date is not None
+                and t.due_date < now
+                and t.status != "done"
+            ]
+        )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -146,15 +183,25 @@ def project_repo(org_repo: FakeOrganizationRepository) -> FakeProjectRepository:
 
 
 @pytest.fixture()
+def task_repo() -> FakeTaskRepository:
+    return FakeTaskRepository()
+
+
+@pytest.fixture()
 def client(
     user_id: uuid.UUID,
     org_repo: FakeOrganizationRepository,
     project_repo: FakeProjectRepository,
+    task_repo: FakeTaskRepository,
 ) -> Iterator[TestClient]:
     app = create_app()
 
     def fake_service() -> ProjectService:
-        return ProjectService(project_repo=project_repo, org_repo=org_repo)  # type: ignore[arg-type]
+        return ProjectService(
+            project_repo=project_repo,  # type: ignore[arg-type]
+            org_repo=org_repo,  # type: ignore[arg-type]
+            task_repo=task_repo,  # type: ignore[arg-type]
+        )
 
     app.dependency_overrides[get_project_service] = fake_service
     app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
@@ -171,8 +218,13 @@ async def _create_project(
     org_id: uuid.UUID,
     user_id: uuid.UUID,
     name: str = "API",
+    task_repo: FakeTaskRepository | None = None,
 ) -> Project:
-    svc = ProjectService(project_repo=project_repo, org_repo=org_repo)  # type: ignore[arg-type]
+    svc = ProjectService(
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        task_repo=task_repo or FakeTaskRepository(),  # type: ignore[arg-type]
+    )
     return await svc.create_project(org_id=org_id, user_id=user_id, name=name)
 
 
@@ -251,6 +303,52 @@ def test_get_project_returns_200(
     response = client.get(f"/api/v1/projects/{project.id}")
     assert response.status_code == 200
     assert response.json()["id"] == str(project.id)
+
+
+def test_get_project_returns_stats(
+    client: TestClient,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    task_repo: FakeTaskRepository,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    project = asyncio.run(
+        _create_project(
+            project_repo, org_repo, org_id=org_id, user_id=user_id, task_repo=task_repo
+        )
+    )
+    now = datetime.now(UTC)
+
+    def make_task(status: str, due_date: datetime | None = None) -> Task:
+        return Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            title="t",
+            status=status,
+            priority="medium",
+            due_date=due_date,
+            created_by=user_id,
+            created_at=now,
+            updated_at=now,
+        )
+
+    overdue_date = now - timedelta(days=1)
+    task_repo.seed(make_task("done"))
+    task_repo.seed(make_task("todo"))
+    task_repo.seed(make_task("cancelled"))
+    task_repo.seed(make_task("in_progress", due_date=overdue_date))  # overdue
+    task_repo.seed(make_task("done", due_date=overdue_date))  # not overdue: done
+
+    response = client.get(f"/api/v1/projects/{project.id}")
+    assert response.status_code == 200
+    stats = response.json()["stats"]
+    assert stats == {
+        "total_tasks": 5,
+        "open_tasks": 2,
+        "overdue_tasks": 1,
+        "completion_rate": 40.0,
+    }
 
 
 def test_get_project_nonexistent_returns_404(client: TestClient) -> None:
