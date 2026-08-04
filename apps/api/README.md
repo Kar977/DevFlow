@@ -110,6 +110,9 @@ created_at: datetime
 updated_at: datetime
 ```
 
+`GET /projects/{id}` (single-project detail only, not the list endpoint) additionally embeds a
+`stats` object: `{total_tasks, open_tasks, overdue_tasks, completion_rate}`, computed on request.
+
 ### Task
 
 ```
@@ -157,8 +160,9 @@ generated_at: datetime | None
 created_at: datetime
 ```
 
-Not yet implemented: `csv`/`pdf` export formats and a `file_url` column — only
-`format='json'` with an inline `payload` exists today.
+`format` is always `'json'` at generation time — the stored `payload` is the source of truth.
+`GET /reports/{id}/export?format=csv|pdf` renders CSV/PDF from that payload on demand; nothing
+is persisted, so there is no `file_url` column.
 
 ### GitHubConnection
 
@@ -264,6 +268,7 @@ organizations ──< projects ──< tasks ──< work_sessions          │
 | POST | `/api/v1/reports` | Generate report | Bearer |
 | GET | `/api/v1/reports` | List reports | Bearer |
 | GET | `/api/v1/reports/{report_id}` | Get report | Bearer |
+| GET | `/api/v1/reports/{report_id}/export?format=csv\|pdf` | Export a `ready` report | Bearer |
 | DELETE | `/api/v1/reports/{report_id}` | Delete report | Bearer |
 
 ### GitHub PR Analytics (`/api/v1/pull-requests`, `/api/v1/repositories`)
