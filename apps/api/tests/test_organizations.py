@@ -344,7 +344,7 @@ def test_deleted_organization_is_not_returned_by_get_or_list(
     client.delete(f"/api/v1/organizations/{org.id}")
 
     assert client.get(f"/api/v1/organizations/{org.id}").status_code == 404
-    assert client.get("/api/v1/organizations").json()["items"] == []
+    assert client.get("/api/v1/organizations").json()["data"] == []
 
 
 def test_deleted_organization_row_is_preserved_not_removed(

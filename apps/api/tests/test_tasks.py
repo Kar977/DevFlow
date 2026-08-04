@@ -443,7 +443,7 @@ def test_list_tasks_returns_accumulated_tracked_seconds(
     )
     response = client.get(f"/api/v1/tasks?project_id={project_id}")
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["tracked_seconds"] == 900
 

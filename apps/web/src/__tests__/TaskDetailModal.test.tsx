@@ -48,7 +48,7 @@ beforeEach(() => {
   useOrgStore.setState({ activeOrgId: "org-1" });
   server.use(
     http.get("*/organizations/org-1/members", () =>
-      HttpResponse.json({ items: members, total: members.length })
+      HttpResponse.json({ data: members })
     )
   );
 });

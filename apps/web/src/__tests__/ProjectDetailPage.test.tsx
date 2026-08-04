@@ -28,10 +28,10 @@ beforeEach(() => {
   server.use(
     http.get("*/projects", () =>
       HttpResponse.json({
-        items: [
+        data: [
           { id: "p1", name: "Alpha", status: "active", org_id: "org1", created_by: "u1", created_at: "2024-01-01", updated_at: "2024-01-01" },
         ],
-        total: 1,
+        meta: { total: 1, limit: 50, offset: 0 },
       })
     ),
     http.get("*/metrics/projects/p1", () =>
@@ -39,10 +39,10 @@ beforeEach(() => {
     ),
     http.get("*/tasks", () =>
       HttpResponse.json({
-        items: [
+        data: [
           { id: "t1", title: "Fix bug", status: "todo", priority: "high", project_id: "p1", created_by: "u1", created_at: "2024-01-01", updated_at: "2024-01-01" },
         ],
-        total: 1,
+        meta: { total: 1, limit: 50, offset: 0 },
       })
     )
   );
