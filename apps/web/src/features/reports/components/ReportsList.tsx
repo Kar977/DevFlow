@@ -1,6 +1,7 @@
 import { useDeleteReport } from "@/features/reports/hooks/useReportMutations";
 import { ReportStatusBadge } from "./ReportStatusBadge";
 import { Button } from "@/shared/ui";
+import { apiClient } from "@/shared/api/client";
 import type { Report } from "@/features/reports/hooks/useReportsQuery";
 
 const TYPE_LABELS: Record<Report["type"], string> = {
@@ -11,6 +12,19 @@ const TYPE_LABELS: Record<Report["type"], string> = {
 
 interface Props {
   reports: Report[];
+}
+
+async function exportReport(reportId: string, format: "csv" | "pdf") {
+  const response = await apiClient.get(`/reports/${reportId}/export`, {
+    params: { format },
+    responseType: "blob",
+  });
+  const url = URL.createObjectURL(response.data as Blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `report-${reportId}.${format}`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export function ReportsList({ reports }: Props) {
@@ -35,6 +49,24 @@ export function ReportsList({ reports }: Props) {
           </div>
           <div className="flex items-center gap-3">
             <ReportStatusBadge status={report.status} />
+            {report.status === "ready" && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => exportReport(report.id, "csv")}
+                >
+                  CSV
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => exportReport(report.id, "pdf")}
+                >
+                  PDF
+                </Button>
+              </>
+            )}
             <Button
               variant="ghost"
               size="sm"

@@ -70,7 +70,7 @@ describe("CreateTaskModal", () => {
     server.use(
       http.get("*/organizations/org-1/members", () =>
         HttpResponse.json({
-          items: [
+          data: [
             {
               id: "mem-1",
               org_id: "org-1",
@@ -80,7 +80,6 @@ describe("CreateTaskModal", () => {
               display_name: "Jan Kowalski",
             },
           ],
-          total: 1,
         })
       ),
       http.post("*/tasks", async ({ request }) => {

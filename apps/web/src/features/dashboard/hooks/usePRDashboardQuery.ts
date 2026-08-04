@@ -43,6 +43,9 @@ export function usePRDashboardMembersQuery(orgId: string | null) {
         .get("/metrics/pr-dashboard/members", {
           params: { organization_id: orgId },
         })
-        .then((r) => r.data as { items: PRDashboardMember[] }),
+        .then((r) => {
+          const body = r.data as { data: PRDashboardMember[] };
+          return { items: body.data };
+        }),
   });
 }

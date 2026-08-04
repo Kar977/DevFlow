@@ -93,7 +93,7 @@ class PRMetricsService:
                     github_login=conn.github_login if conn else None,
                 )
             )
-        return PRDashboardMembersResponse(items=items)
+        return PRDashboardMembersResponse(data=items)
 
 
 def _stale_pr_count(prs: list[PullRequest], now: datetime) -> int:

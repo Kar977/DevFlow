@@ -1,6 +1,7 @@
 """Project service — project lifecycle within organizations."""
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,8 @@ from devflow_api.core.errors import AppError
 from devflow_api.core.models.project import Project
 from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
+from devflow_api.core.repositories.task import TaskRepository
+from devflow_api.core.schemas.projects import ProjectStatsResponse
 
 
 class ProjectService:
@@ -17,9 +20,11 @@ class ProjectService:
         self,
         project_repo: ProjectRepository,
         org_repo: OrganizationRepository,
+        task_repo: TaskRepository,
     ) -> None:
         self._project_repo = project_repo
         self._org_repo = org_repo
+        self._task_repo = task_repo
 
     async def _require_org_membership(
         self, *, org_id: uuid.UUID, user_id: uuid.UUID
@@ -68,6 +73,31 @@ class ProjectService:
     ) -> Project:
         return await self._get_owned_project(project_id=project_id, user_id=user_id)
 
+    async def get_project_detail(
+        self, *, project_id: uuid.UUID, user_id: uuid.UUID
+    ) -> tuple[Project, ProjectStatsResponse]:
+        project = await self._get_owned_project(project_id=project_id, user_id=user_id)
+        stats = await self._compute_stats(project_id)
+        return project, stats
+
+    async def _compute_stats(self, project_id: uuid.UUID) -> ProjectStatsResponse:
+        total = await self._task_repo.count_for_project(project_id)
+        done = await self._task_repo.count_for_project(project_id, status="done")
+        cancelled = await self._task_repo.count_for_project(
+            project_id, status="cancelled"
+        )
+        overdue = await self._task_repo.count_overdue_for_project(
+            project_id, now=datetime.now(UTC)
+        )
+        open_tasks = total - done - cancelled
+        completion_rate = round(done / total * 100, 2) if total else 0.0
+        return ProjectStatsResponse(
+            total_tasks=total,
+            open_tasks=open_tasks,
+            overdue_tasks=overdue,
+            completion_rate=completion_rate,
+        )
+
     async def list_projects(
         self,
         *,
@@ -75,15 +105,19 @@ class ProjectService:
         org_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Project]:
+    ) -> tuple[list[Project], int]:
         if org_id is not None:
             await self._require_org_membership(org_id=org_id, user_id=user_id)
-            return await self._project_repo.list_for_org(
+            projects = await self._project_repo.list_for_org(
                 org_id, limit=limit, offset=offset
             )
-        return await self._project_repo.list_for_user(
+            total = await self._project_repo.count_for_org(org_id)
+            return projects, total
+        projects = await self._project_repo.list_for_user(
             user_id, limit=limit, offset=offset
         )
+        total = await self._project_repo.count_for_user(user_id)
+        return projects, total
 
     async def update_project(
         self,
@@ -117,4 +151,5 @@ def get_project_service(
     return ProjectService(
         project_repo=ProjectRepository(session),
         org_repo=OrganizationRepository(session),
+        task_repo=TaskRepository(session),
     )

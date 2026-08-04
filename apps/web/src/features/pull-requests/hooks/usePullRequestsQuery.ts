@@ -57,7 +57,13 @@ export function usePullRequestsQuery(
         .get("/pull-requests", {
           params: { organization_id: orgId, ...params },
         })
-        .then((r) => r.data as { items: PullRequest[]; total: number }),
+        .then((r) => {
+          const body = r.data as {
+            data: PullRequest[];
+            meta: { total: number };
+          };
+          return { items: body.data, total: body.meta.total };
+        }),
   });
 }
 

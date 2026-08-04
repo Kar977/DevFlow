@@ -136,17 +136,24 @@ status: healthy (<10%), at_risk (10–30%), critical (>30%)
 
 ## Feature-to-Module Mapping
 
-| Feature | Router | Base path |
+| Feature | Router dir | Base path |
 |---|---|---|
 | Auth | auth | `/api/v1/auth` |
 | Workspaces/Teams | organizations | `/api/v1/organizations` |
-| Projects | repositories | `/api/v1/projects` |
-| Tasks + Time Tracking | pull_requests | `/api/v1/tasks` |
-| Metrics | metrics | `/api/v1/metrics` |
+| Projects | projects | `/api/v1/projects` |
+| Tasks + Time Tracking | tasks | `/api/v1/tasks` |
+| Metrics + PR-flow KPIs | metrics | `/api/v1/metrics` |
 | Reports | reports | `/api/v1/reports` |
-| GitHub sync | integrations/github | `/api/v1/integrations/github` |
+| GitHub PR analytics | pull_requests | `/api/v1/pull-requests` |
+| GitHub tracked repos | repositories | `/api/v1/repositories` |
+| GitHub App + OAuth + sync | integrations/github | `/api/v1/integrations/github` |
 
-**Note:** The `pull_requests` router handles tasks (changed domain role). The `repositories` router handles projects. Router names in code remain unchanged to preserve scaffold continuity.
+**Note:** Projects and Tasks each have their own router directory today.
+The `pull_requests` and `repositories` router directories carry a different
+domain than their names suggest — they serve org-scoped GitHub PR data
+(added later, see `docs/superpowers/specs/2026-06-26-github-pr-analytics-design.md`),
+not the task-management Projects/Tasks endpoints. Names kept as-is to
+preserve scaffold continuity.
 
 ---
 

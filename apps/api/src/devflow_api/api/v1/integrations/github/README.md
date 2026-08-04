@@ -147,18 +147,23 @@ To receive webhooks, configure a webhook in the repository or organization setti
 
 ---
 
-## Files to Create
+## Implementation Status
 
-- `routes.py` — route handlers (replace current placeholder)
-- `../../../core/integrations/github/client.py` — `GitHubClient`
-- `../../../core/integrations/github/oauth.py` — `GitHubOAuthClient`
-- `../../../core/integrations/github/webhooks.py` — `verify_signature`, `parse_event`
-- `../../../core/integrations/github/sync.py` — `GitHubSyncRunner`
-- `../../../core/schemas/github/` — `GitHubConnectionResponse`, `AuthorizeResponse`, `SyncResultResponse`
-- `../../../core/services/github_sync.py` — `GitHubSyncService`
-- `../../../core/repositories/github_connection.py` — `GitHubConnectionRepository`
-- `../../../core/models/github_connection.py` — `GitHubConnection` model
-- Alembic migration: `github_connections` table
+Implemented — see `routes.py`, `../../../core/integrations/github/client.py`
+(`GitHubApiClient`), `../../../core/integrations/github/oauth.py`,
+`../../../core/integrations/github/webhooks.py` (`verify_signature`, `parse_event`),
+`../../../core/schemas/github/`, `../../../core/services/github_sync.py`
+(`GitHubSyncService`, OAuth identity link), `../../../core/repositories/github_connection.py`,
+`../../../core/models/github_connection.py`, and Alembic migration
+`0005_create_github_connections.py`.
+
+**Grew beyond this doc's original OAuth-only design:** repository access is now
+via a GitHub App (`../../../core/integrations/github/app_auth.py`,
+`../../../core/services/github_app.py`, `../../../core/services/org_sync.py`),
+covering the `/app/*` and `/sync` routes listed in `../README.md`. The
+`GitHubConnectionResponse` OAuth flow described below still exists — it links a
+member's personal GitHub login for per-member PR attribution, and is separate
+from the App installation that grants repository access.
 
 ## Dependencies to Add (`pyproject.toml`)
 

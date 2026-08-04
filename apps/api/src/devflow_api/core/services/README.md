@@ -185,7 +185,11 @@ async def get_streaks(user_id: UUID) -> StreakData
 async def get_project_metrics(project_id: UUID, requester_id: UUID) -> ProjectMetrics
 ```
 
-**Caching:** Results of `get_summary` and `get_velocity` should be cached for 5 minutes. Start with a simple in-memory dict with TTL; add Redis as a next step.
+**Caching:** every metrics endpoint (not just `get_summary`/`get_velocity`) is cache-aside with
+TTL `settings.metrics_cache_ttl_seconds` (default **60s**), key `metrics:{endpoint}:{user_id}:...`.
+Backend is `RedisCache` when `DEVFLOW_API_REDIS_URL` is set, else an in-memory `InMemoryCache`
+fallback — see `core/cache.py`. `TaskService` calls `cache.delete_matching(user_id)` on task→done
+and on work-session stop, so a change is reflected immediately rather than waiting out the TTL.
 
 ---
 
@@ -197,16 +201,19 @@ async def request(user_id: UUID, type: str, format: str, **params) -> Report
     # Enqueue background task (FastAPI BackgroundTasks)
     # Return Report
 
-async def generate(report_id: UUID) -> None   ← background task
-    # Change status to 'generating'
-    # Gather data (MetricsService / TaskRepository)
-    # Serialize to JSON / CSV
-    # Update Report (status='ready', payload or file_url)
+async def generate(report_id: UUID) -> None   ← runs as a detached asyncio.Task with its own
+    # Change status to 'generating'              session (not FastAPI BackgroundTasks — needs to
+    # Gather data (MetricsService / TaskRepository)  outlive the request's transaction)
+    # Update Report (status='ready', payload)
     # On error: status='failed', error_message
 
 async def get(report_id: UUID, requester_id: UUID) -> Report
 
 async def list(user_id: UUID, **pagination) -> tuple[list[Report], int]
+
+async def export(report_id: UUID, requester_id: UUID, fmt: str) -> tuple[bytes, str, str]
+    # Renders the stored payload as CSV or PDF on demand (no persistence);
+    # 409 if the report isn't 'ready' yet. Returns (content, media_type, filename).
 
 async def delete(report_id: UUID, requester_id: UUID) -> None
 ```

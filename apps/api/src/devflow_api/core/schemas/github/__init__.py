@@ -55,7 +55,9 @@ class InstallationResponse(BaseModel):
 
 
 class InstallationListResponse(BaseModel):
-    items: list[InstallationResponse]
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[InstallationResponse]
 
 
 class RefreshReposResponse(BaseModel):
@@ -75,7 +77,9 @@ class RepositoryResponse(BaseModel):
 
 
 class RepositoryListResponse(BaseModel):
-    items: list[RepositoryResponse]
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[RepositoryResponse]
 
 
 class RepositoryUpdateRequest(BaseModel):
@@ -96,4 +100,6 @@ class SyncRunResponse(BaseModel):
 
 
 class SyncRunListResponse(BaseModel):
-    items: list[SyncRunResponse]
+    """Not paginated — `meta` is omitted per the documented envelope contract."""
+
+    data: list[SyncRunResponse]

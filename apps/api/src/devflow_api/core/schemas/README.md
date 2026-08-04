@@ -128,11 +128,15 @@ class UpdateProjectRequest(BaseModel):
 class ProjectResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
+    org_id: UUID
     name: str
     description: str | None
     status: str
     github_repo_url: str | None
+    created_by: UUID
     created_at: datetime
+    updated_at: datetime
+    stats: ProjectStatsResponse | None = None  # populated on GET /projects/{id} only
 
 class ProjectStatsResponse(BaseModel):
     total_tasks: int
@@ -175,12 +179,13 @@ class TaskResponse(BaseModel):
     priority: str
     estimate_minutes: int | None
     assignee_id: UUID | None
-    project_id: UUID | None
+    project_id: UUID
     due_date: date | None
-    source: str
-    github_url: str | None
+    github_pr_url: str | None
+    created_by: UUID
     created_at: datetime
     updated_at: datetime
+    tracked_seconds: int = 0  ← sum of this task's work_sessions, computed on list/get
 
 class WorkSessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -243,7 +248,7 @@ class MetricsSummaryResponse(BaseModel):
 ```python
 class CreateReportRequest(BaseModel):
     type: Literal['weekly_summary', 'project_status', 'productivity_overview']
-    format: Literal['json', 'csv'] = 'json'
+    format: Literal['json'] = 'json'   # the only generation format; see export below
     project_id: UUID | None = None     # required for type='project_status'
     date_from: date | None = None
     date_to: date | None = None
@@ -255,10 +260,13 @@ class ReportResponse(BaseModel):
     format: str
     status: str
     payload: dict | None = None
-    file_url: str | None = None
+    error_message: str | None = None
     generated_at: datetime | None
     created_at: datetime
 ```
+
+`GET /reports/{id}/export?format=csv|pdf` renders `payload` as CSV/PDF on demand and returns the
+file directly — it is not a schema/model field, there is no `file_url`.
 
 ---
 

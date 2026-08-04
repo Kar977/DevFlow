@@ -1,6 +1,6 @@
 # DevFlow Insight
 
-DevFlow Insight is a developer productivity platform. It allows developers to manage projects and tasks, track work time, and measure their productivity through analytics dashboards.
+DevFlow Insight is a developer productivity platform. It allows developers to manage projects and tasks, track work time, and measure their productivity through analytics dashboards. It also gives teams GitHub PR-flow analytics — stale PR counts, review velocity, throughput — for repositories tracked through a GitHub App or personal OAuth connection.
 
 ## What is DevFlow Insight?
 
@@ -9,37 +9,35 @@ A developer can log in and:
 - Manage tasks: status, priority, time estimates
 - Track time spent on tasks (start/stop timer)
 - View productivity dashboards: velocity, completion rate, estimation accuracy, activity streaks
-- Optionally: connect a GitHub account and sync PRs/issues as tasks
+- Connect a GitHub account or install the GitHub App on an organization, track repositories, and view PR-flow metrics (stale PRs, review velocity, weekly throughput, review ratio) alongside the productivity dashboards
 
 ## Roadmap
 
-### Stage 1 — Backend API (current stage)
+### Stage 1 — Backend API (done)
 
-Backend only (FastAPI REST API). No frontend yet.
+FastAPI REST API. All domains below are implemented, tested, and mounted under `/api/v1`:
+1. **Auth** — registration, JWT login, refresh-token rotation via httpOnly cookie
+2. **Organizations** — workspace/team management with roles, soft-deletable
+3. **Projects** — developer projects, with a `stats` summary per project
+4. **Tasks + Time Tracking** — tasks with a start/stop timer
+5. **Metrics** — productivity dashboards (velocity, completion rate, estimation accuracy, streaks) and PR-flow dashboards, both Redis-cached
+6. **Reports** — async report generation with JSON, CSV, and PDF export
+7. **GitHub Integration** — personal OAuth connection, org-level GitHub App installation, PR/review sync, webhooks
 
-Domains to implement (in dependency order):
-1. **Auth** — registration, JWT login, token management
-2. **Organizations** — workspace/team management with roles
-3. **Projects** — developer projects (router: `/repositories`)
-4. **Tasks + Time Tracking** — tasks with timer (router: `/pull-requests`)
-5. **Metrics** — productivity metrics and dashboards
-6. **Reports** — data export (JSON → CSV/PDF)
-7. **GitHub Integration** — optional GitHub sync
+### Stage 2 — Frontend (done)
 
-### Stage 2 — Frontend (planned)
-
-React + TypeScript + Vite application in `apps/web/`. Views:
+React + TypeScript + Vite single-page app in `apps/web/`:
 - Login and registration screens
-- Developer metrics dashboard
-- Project and task list (Kanban/List view)
-- Work time tracker
-- Reports and export view
+- Developer productivity dashboard and PR-flow dashboard
+- Project and task views, with a start/stop timer
+- Reports view with CSV/PDF export
+- GitHub App installation, repository tracking, and PR list/detail views
 
 ## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  CLIENTS (Stage 2)                   │
+│                       CLIENTS                        │
 │         React App (apps/web)  |  Swagger UI          │
 └─────────────────┬───────────────────────────────────┘
                   │ HTTP/REST
@@ -49,31 +47,45 @@ React + TypeScript + Vite application in `apps/web/`. Views:
 │  /api/v1/auth          /api/v1/organizations         │
 │  /api/v1/projects      /api/v1/tasks                 │
 │  /api/v1/metrics       /api/v1/reports               │
+│  /api/v1/repositories  /api/v1/pull-requests          │
 │  /api/v1/integrations/github                         │
 │                                                      │
-│  Core: config | database | security | errors         │
+│  Core: config | database | security | errors | cache │
 │  Layers: routes → services → repositories → models   │
-└─────────────────┬───────────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────────────┐
-│              PostgreSQL 18.3                          │
-│   users | organizations | projects | tasks           │
-│   work_sessions | reports | github_connections       │
+└─────────────────┬──────────────────┬─────────────────┘
+                  │                  │
+┌─────────────────▼───────┐  ┌───────▼───────────────┐
+│      PostgreSQL 18.3     │  │        Redis           │
+│  users | organizations   │  │   metrics cache         │
+│  projects | tasks        │  │   (falls back to        │
+│  work_sessions | reports │  │   in-memory when unset) │
+│  github_connections      │  └────────────────────────┘
+│  repositories | pull_requests | pull_request_reviews  │
+│  github_installations | sync_runs                     │
 └─────────────────────────────────────────────────────┘
 ```
+
+`repositories` and `pull_requests` are org-scoped GitHub data (tracked repos, synced PRs and
+reviews), distinct from the `projects`/`tasks` productivity domain — see the note in
+[Product Requirements](docs/product/README.md#feature-to-module-mapping).
 
 ## Monorepo Layout
 
 ```
 devflow/
 ├── apps/
-│   └── api/                # FastAPI backend (Stage 1)
-│       ├── src/devflow_api/
-│       │   ├── api/v1/     # Route handlers per domain
-│       │   └── core/       # Config, DB, models, services
-│       ├── tests/
-│       ├── migrations/     # Alembic migrations
-│       └── README.md       # Full API spec
+│   ├── api/                 # FastAPI backend
+│   │   ├── src/devflow_api/
+│   │   │   ├── api/v1/      # Route handlers per domain
+│   │   │   └── core/        # Config, DB, models, services
+│   │   ├── tests/
+│   │   ├── migrations/      # Alembic migrations
+│   │   └── README.md        # Full API spec
+│   └── web/                 # React + TypeScript + Vite frontend
+│       └── src/
+│           ├── app/         # App shell, router, providers
+│           ├── features/    # Feature-sliced pages/components/hooks
+│           └── shared/      # API client, stores, UI primitives
 ├── docs/
 │   └── product/
 │       └── README.md       # Product requirements and user stories
@@ -91,7 +103,7 @@ Requirements: Docker, Docker Compose.
 # 1. Copy environment config
 cp apps/api/.env.example apps/api/.env
 
-# 2. Start the stack
+# 2. Start the API stack (FastAPI + PostgreSQL + Redis)
 docker compose -f infra/docker-compose.yml up -d
 
 # 3. Run database migrations
@@ -103,6 +115,9 @@ curl http://localhost:8000/health
 
 API is available at `http://localhost:8000`. Interactive Swagger docs: `http://localhost:8000/docs`.
 
+To run the frontend, from `apps/web/`: `npm install && npm run dev` — it proxies `/api` to the
+backend and serves on `http://localhost:5173`.
+
 ## Documentation
 
 - [Backend API](apps/api/README.md) — endpoint spec, data models, development guide
@@ -113,8 +128,13 @@ API is available at `http://localhost:8000`. Interactive Swagger docs: `http://l
 
 The initial product brief (`.local_docs/DevFlow Insight/`) defined a GitHub PR analytics
 tool. During implementation the scope pivoted to a developer productivity platform
-(projects, tasks, time tracking). The original brief files are preserved as historical
-context but are superseded.
+(projects, tasks, time tracking); that pivot is the formal record in
+`docs/decision-log-addendum.md`. GitHub PR-flow analytics was later re-added alongside the
+productivity domain (org-scoped `repositories`/`pull_requests`/`pull_request_reviews`, the
+5 PR-flow KPIs, GitHub App installation) — see
+`docs/superpowers/specs/2026-06-26-github-pr-analytics-design.md`. The original brief files
+under `.local_docs/` are preserved as historical context but are superseded by
+`docs/product/README.md`.
 
 - [Reconciliation report](docs/reconciliation-report.md) — full audit of brief vs. implementation
 - [Decision log addendum](docs/decision-log-addendum.md) — formal record of the product pivot

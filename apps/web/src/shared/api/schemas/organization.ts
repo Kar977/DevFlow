@@ -11,7 +11,7 @@ export const OrganizationSchema = z.object({
 });
 
 export const OrganizationListResponseSchema = z.object({
-  items: z.array(OrganizationSchema),
+  data: z.array(OrganizationSchema),
 });
 
 export type Organization = z.infer<typeof OrganizationSchema>;

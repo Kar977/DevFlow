@@ -47,6 +47,10 @@ PostgreSQL
 
 ## Data Models
 
+Core productivity-platform models below. The GitHub App integration adds five
+more (`GitHubInstallation`, `Repository`, `PullRequest`, `PullRequestReview`,
+`SyncRun`) — see `src/devflow_api/core/models/README.md`.
+
 ### User
 
 ```
@@ -96,7 +100,7 @@ joined_at: datetime
 
 ```
 id: UUID (PK)
-org_id: UUID (FK → organizations) | None
+org_id: UUID (FK → organizations)
 name: str
 description: str | None
 status: Enum('active', 'archived')
@@ -106,11 +110,14 @@ created_at: datetime
 updated_at: datetime
 ```
 
+`GET /projects/{id}` (single-project detail only, not the list endpoint) additionally embeds a
+`stats` object: `{total_tasks, open_tasks, overdue_tasks, completion_rate}`, computed on request.
+
 ### Task
 
 ```
 id: UUID (PK)
-project_id: UUID (FK → projects) | None
+project_id: UUID (FK → projects)
 title: str
 description: str | None
 status: Enum('backlog', 'todo', 'in_progress', 'review', 'done', 'cancelled')
@@ -118,12 +125,14 @@ priority: Enum('low', 'medium', 'high', 'critical')
 estimate_minutes: int | None
 assignee_id: UUID (FK → users) | None
 created_by: UUID (FK → users)
-due_date: date | None
-source: Enum('manual', 'github_pr', 'github_issue')
-github_url: str | None
+due_date: datetime | None
+github_pr_url: str | None
 created_at: datetime
 updated_at: datetime
 ```
+
+Not yet implemented: a `source` field distinguishing manual tasks from
+GitHub-imported ones — only `github_pr_url` exists today.
 
 ### WorkSession
 
@@ -143,25 +152,29 @@ created_at: datetime
 id: UUID (PK)
 user_id: UUID (FK → users)
 type: Enum('weekly_summary', 'project_status', 'productivity_overview')
-format: Enum('json', 'csv', 'pdf')
+format: Enum('json')
 status: Enum('pending', 'generating', 'ready', 'failed')
-payload: JSON | None           ← for format='json'
-file_url: str | None           ← for format='csv'/'pdf'
+payload: JSON | None
+error_message: str | None
 generated_at: datetime | None
 created_at: datetime
 ```
+
+`format` is always `'json'` at generation time — the stored `payload` is the source of truth.
+`GET /reports/{id}/export?format=csv|pdf` renders CSV/PDF from that payload on demand; nothing
+is persisted, so there is no `file_url` column.
 
 ### GitHubConnection
 
 ```
 id: UUID (PK)
 user_id: UUID (FK → users, unique)
-github_user_id: int
-github_username: str
-access_token_encrypted: bytes  ← Fernet-encrypted
-scopes: str                    ← e.g. "repo,read:user"
+github_user_id: str
+github_login: str
+access_token_encrypted: str    ← Fernet-encrypted
+scopes: str                    ← e.g. "read:user"
 connected_at: datetime
-last_sync_at: datetime | None
+updated_at: datetime
 ```
 
 ## Database Schema (relations)
@@ -255,17 +268,30 @@ organizations ──< projects ──< tasks ──< work_sessions          │
 | POST | `/api/v1/reports` | Generate report | Bearer |
 | GET | `/api/v1/reports` | List reports | Bearer |
 | GET | `/api/v1/reports/{report_id}` | Get report | Bearer |
+| GET | `/api/v1/reports/{report_id}/export?format=csv\|pdf` | Export a `ready` report | Bearer |
 | DELETE | `/api/v1/reports/{report_id}` | Delete report | Bearer |
+
+### GitHub PR Analytics (`/api/v1/pull-requests`, `/api/v1/repositories`)
+
+Org-scoped PR data pulled in via the GitHub App integration below (distinct
+from the task-management Projects/Tasks endpoints above). See
+`src/devflow_api/api/v1/README.md` for the full endpoint list.
 
 ### GitHub Integration (`/api/v1/integrations/github`)
 
+Repository access is via a GitHub App (`/app/*` routes — install URL, setup,
+installations, tracked-repo sync); a separate OAuth flow below links a
+member's personal GitHub login for per-member PR attribution. Full endpoint
+list, including the `/app/*` routes, is in
+`src/devflow_api/api/v1/README.md`.
+
 | Method | Path | Description | Auth |
 |---|---|---|---|
-| POST | `/api/v1/integrations/github/authorize` | Start OAuth flow | Bearer |
+| POST | `/api/v1/integrations/github/authorize` | Start OAuth identity link | Bearer |
 | GET | `/api/v1/integrations/github/callback` | OAuth callback | — |
 | GET | `/api/v1/integrations/github/status` | Connection status | Bearer |
 | DELETE | `/api/v1/integrations/github/disconnect` | Disconnect GitHub | Bearer |
-| POST | `/api/v1/integrations/github/sync` | Manual sync | Bearer |
+| POST | `/api/v1/integrations/github/sync` | Sync PRs of all tracked repos | Bearer |
 | POST | `/api/v1/integrations/github/webhooks` | Webhook receiver | HMAC |
 
 ## Authentication Flow
@@ -283,14 +309,26 @@ organizations ──< projects ──< tasks ──< work_sessions          │
 
 ### Success
 
+The `{data, meta}` envelope applies to **list endpoints only**
+(`GET /projects`, `/tasks`, `/reports`, `/pull-requests`, `/organizations`,
+`/organizations/{id}/members`, `/tasks/{id}/sessions`, `/repositories`,
+`/integrations/github/app/installations`, `/integrations/github/sync-runs`,
+`/metrics/pr-dashboard/members`):
+
 ```json
 {
-  "data": { ... },
-  "meta": { "total": 42, "limit": 20, "offset": 0 }
+  "data": [ ... ],
+  "meta": { "total": 142, "limit": 20, "offset": 0 }
 }
 ```
 
-`meta` is omitted for non-paginated responses.
+`meta` is present only when the endpoint accepts `limit`/`offset`; endpoints
+that always return the full collection (organizations, members, sessions,
+repositories, installations, sync runs, dashboard members) return `{"data": [...]}`
+with no `meta` key.
+
+Single-resource responses (`GET /projects/{id}`, `POST /auth/login`, ...) are
+**not** wrapped — the resource is the response body directly.
 
 ### Error
 

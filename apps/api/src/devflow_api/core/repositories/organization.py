@@ -30,10 +30,16 @@ class OrganizationRepository:
         return org
 
     async def get_by_id(self, org_id: uuid.UUID) -> Organization | None:
-        return await self._session.get(Organization, org_id)
+        stmt = select(Organization).where(
+            Organization.id == org_id, Organization.deleted_at.is_(None)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_by_slug(self, slug: str) -> Organization | None:
-        stmt = select(Organization).where(Organization.slug == slug)
+        stmt = select(Organization).where(
+            Organization.slug == slug, Organization.deleted_at.is_(None)
+        )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -41,7 +47,10 @@ class OrganizationRepository:
         stmt = (
             select(Organization)
             .join(OrganizationMember, OrganizationMember.org_id == Organization.id)
-            .where(OrganizationMember.user_id == user_id)
+            .where(
+                OrganizationMember.user_id == user_id,
+                Organization.deleted_at.is_(None),
+            )
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
@@ -61,9 +70,12 @@ class OrganizationRepository:
         return org
 
     async def soft_delete(self, org: Organization, deleted_at: datetime) -> None:
-        # Mark deleted by setting updated_at; caller removes via cascade or filters
-        org.updated_at = deleted_at
-        await self._session.delete(org)
+        # Mark deleted rather than removing the row, so projects/tasks/work
+        # sessions belonging to the organization are preserved. The slug is
+        # rewritten so a new organization can reuse it (the unique index on
+        # slug is not aware of deleted_at).
+        org.deleted_at = deleted_at
+        org.slug = f"{org.slug}-deleted-{uuid.uuid4().hex[:8]}"
         await self._session.flush()
 
     async def add_member(

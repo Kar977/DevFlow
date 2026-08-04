@@ -50,16 +50,26 @@ class FakeOrganizationRepository:
         return org
 
     async def get_by_id(self, org_id: uuid.UUID) -> Organization | None:
-        return self._orgs.get(org_id)
+        org = self._orgs.get(org_id)
+        if org is None or org.deleted_at is not None:
+            return None
+        return org
 
     async def get_by_slug(self, slug: str) -> Organization | None:
-        return next((o for o in self._orgs.values() if o.slug == slug), None)
+        return next(
+            (o for o in self._orgs.values() if o.slug == slug and o.deleted_at is None),
+            None,
+        )
 
     async def list_for_user(self, user_id: uuid.UUID) -> list[Organization]:
         member_org_ids = {
             m.org_id for m in self._members.values() if m.user_id == user_id
         }
-        return [o for o in self._orgs.values() if o.id in member_org_ids]
+        return [
+            o
+            for o in self._orgs.values()
+            if o.id in member_org_ids and o.deleted_at is None
+        ]
 
     async def update(
         self,
@@ -75,10 +85,8 @@ class FakeOrganizationRepository:
         return org
 
     async def soft_delete(self, org: Organization, deleted_at: datetime) -> None:
-        self._orgs.pop(org.id, None)
-        for mid, m in list(self._members.items()):
-            if m.org_id == org.id:
-                del self._members[mid]
+        org.deleted_at = deleted_at
+        org.slug = f"{org.slug}-deleted-{uuid.uuid4().hex[:8]}"
 
     async def add_member(
         self, *, org_id: uuid.UUID, user_id: uuid.UUID, role: str
@@ -243,8 +251,8 @@ def test_list_organizations_returns_200(
     response = client.get("/api/v1/organizations")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["name"] == "Acme"
+    assert "meta" not in body
+    assert body["data"][0]["name"] == "Acme"
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +332,56 @@ def test_delete_organization_returns_204(
     assert response.status_code == 204
 
 
+def test_deleted_organization_is_not_returned_by_get_or_list(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    client.delete(f"/api/v1/organizations/{org.id}")
+
+    assert client.get(f"/api/v1/organizations/{org.id}").status_code == 404
+    assert client.get("/api/v1/organizations").json()["data"] == []
+
+
+def test_deleted_organization_row_is_preserved_not_removed(
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    """soft_delete must mark the row deleted, not drop it — child projects and
+    tasks reference the organization and must not be orphaned by a cascade."""
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(
+        OrganizationService(org_repo=org_repo, user_repo=user_repo).delete_organization(  # type: ignore[arg-type]
+            org_id=org.id, user_id=owner.id
+        )
+    )
+    assert org.id in org_repo._orgs
+    assert org_repo._orgs[org.id].deleted_at is not None
+
+
+def test_slug_is_reusable_after_organization_is_deleted(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    import asyncio
+
+    old = asyncio.run(_create_org(org_repo, user_repo, owner.id, "Acme"))
+    client.delete(f"/api/v1/organizations/{old.id}")
+
+    response = client.post("/api/v1/organizations", json={"name": "Acme"})
+    assert response.status_code == 201
+    assert response.json()["slug"] == "acme"
+
+
 # ---------------------------------------------------------------------------
 # Tests — members
 # ---------------------------------------------------------------------------
@@ -401,9 +459,9 @@ def test_list_members_returns_200(
     response = client.get(f"/api/v1/organizations/{org.id}/members")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["role"] == "owner"
-    assert body["items"][0]["display_name"] == "Test User"
+    assert "meta" not in body
+    assert body["data"][0]["role"] == "owner"
+    assert body["data"][0]["display_name"] == "Test User"
 
 
 def test_list_members_falls_back_to_email_when_full_name_missing(

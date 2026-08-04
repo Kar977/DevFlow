@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devflow_api.core.schemas.pagination import PageMeta
+
 _TYPE_PATTERN = "^(weekly_summary|project_status|productivity_overview)$"
 _FORMAT_PATTERN = "^(json)$"
 
@@ -32,5 +34,5 @@ class ReportResponse(BaseModel):
 
 
 class ReportListResponse(BaseModel):
-    items: list[ReportResponse]
-    total: int
+    data: list[ReportResponse]
+    meta: PageMeta

@@ -98,14 +98,16 @@ Response `204 No Content`.
 
 ---
 
-## Files to Create
+## Implementation Status
 
-- `routes.py` — route handlers (replace current placeholder)
-- `../../../core/schemas/projects/` — `CreateProjectRequest`, `UpdateProjectRequest`, `ProjectResponse`, `ProjectStatsResponse`
-- `../../../core/services/project.py` — `ProjectService`
-- `../../../core/repositories/project.py` — `ProjectRepository`
-- `../../../core/models/project.py` — `Project` model
-- Alembic migration: `projects` table
+Implemented — see `routes.py`, `../../../core/schemas/projects/`
+(`CreateProjectRequest`, `UpdateProjectRequest`, `ProjectResponse`),
+`../../../core/services/project.py` (`ProjectService`),
+`../../../core/repositories/project.py` (`ProjectRepository`),
+`../../../core/models/project.py`, and Alembic migration `0003_create_projects.py`.
+
+**Not yet implemented:** `ProjectStatsResponse` — `GET /projects/{id}` does not
+return a nested `stats` object (total/open/overdue task counts).
 
 ## URL Naming Note
 

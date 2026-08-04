@@ -92,7 +92,10 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: UUID (primary_key)
-    org_id: UUID (FK → organizations.id) | None  ← None = personal project
+    org_id: UUID (FK → organizations.id, not null)  ← every project belongs to an org;
+                                                        "personal" projects live in the
+                                                        org auto-created for each user
+                                                        at registration
     name: str (not null)
     description: str | None
     status: str (not null, default='active')     ← 'active' | 'archived'
@@ -101,6 +104,9 @@ class Project(Base):
     created_at: datetime
     updated_at: datetime
 ```
+
+`GET /projects/{id}` (detail only) additionally embeds a `stats` object:
+`{total_tasks, open_tasks, overdue_tasks, completion_rate}`, computed on request.
 
 Indexes on `(org_id)`, `(created_by)`.
 
@@ -124,9 +130,7 @@ class Task(Base):
     assignee_id: UUID (FK → users.id) | None
     created_by: UUID (FK → users.id, not null)
     due_date: date | None
-    source: str (not null, default='manual')
-        # 'manual' | 'github_pr' | 'github_issue'
-    github_url: str | None
+    github_pr_url: str | None
     created_at: datetime
     updated_at: datetime
 ```
@@ -166,16 +170,17 @@ class Report(Base):
     user_id: UUID (FK → users.id, not null, indexed)
     type: str (not null)
         # 'weekly_summary' | 'project_status' | 'productivity_overview'
-    format: str (not null, default='json')
-        # 'json' | 'csv' | 'pdf'
+    format: str (not null, default='json')  ← generation format; always 'json' today
     status: str (not null, default='pending')
         # 'pending' | 'generating' | 'ready' | 'failed'
-    payload: dict | None                ← JSON payload for format='json'
-    file_url: str | None                ← file URL for format='csv'/'pdf'
+    payload: dict | None                ← JSON payload, the source of truth
     error_message: str | None           ← error details when status='failed'
     generated_at: datetime | None
     created_at: datetime
 ```
+
+`GET /reports/{id}/export?format=csv|pdf` renders `payload` as CSV/PDF on demand — nothing is
+persisted, so there is no `file_url` column.
 
 ---
 
@@ -187,12 +192,12 @@ class GitHubConnection(Base):
 
     id: UUID (primary_key)
     user_id: UUID (FK → users.id, unique, not null)  ← one user = one connection
-    github_user_id: int (not null)
-    github_username: str (not null)
-    access_token_encrypted: bytes (not null)         ← Fernet-encrypted
+    github_user_id: str (not null)
+    github_login: str (not null)
+    access_token_encrypted: str (not null)           ← Fernet-encrypted
     scopes: str (not null)                           ← e.g. "repo,read:user,read:org"
     connected_at: datetime (default=now)
-    last_sync_at: datetime | None
+    updated_at: datetime (default=now, onupdate=now)
 ```
 
 ## Alembic Migration Order

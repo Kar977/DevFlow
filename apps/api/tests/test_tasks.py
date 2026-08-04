@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from devflow_api.core.cache import InMemoryCache
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
 from devflow_api.core.models.task import Task
@@ -121,6 +122,20 @@ class FakeTaskRepository:
         if assignee_id is not None:
             items = [t for t in items if t.assignee_id == assignee_id]
         return items[offset : offset + limit]
+
+    async def count_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ) -> int:
+        items = [t for t in self._tasks.values() if t.project_id == project_id]
+        if status is not None:
+            items = [t for t in items if t.status == status]
+        if assignee_id is not None:
+            items = [t for t in items if t.assignee_id == assignee_id]
+        return len(items)
 
     async def update(
         self,
@@ -385,7 +400,7 @@ def test_list_tasks_returns_200(
     _make_task(service, project_id=project_id, user_id=user_id)
     response = client.get(f"/api/v1/tasks?project_id={project_id}")
     assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert response.json()["meta"]["total"] == 1
 
 
 def test_list_tasks_filtered_by_status(
@@ -398,7 +413,7 @@ def test_list_tasks_filtered_by_status(
     # all seeded tasks are 'backlog'; filtering by 'done' yields none
     response = client.get(f"/api/v1/tasks?project_id={project_id}&status=done")
     assert response.status_code == 200
-    assert response.json()["total"] == 0
+    assert response.json()["meta"]["total"] == 0
 
 
 def test_list_tasks_missing_project_returns_422(client: TestClient) -> None:
@@ -429,7 +444,7 @@ def test_list_tasks_returns_accumulated_tracked_seconds(
     )
     response = client.get(f"/api/v1/tasks?project_id={project_id}")
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["tracked_seconds"] == 900
 
@@ -692,4 +707,97 @@ def test_list_sessions_returns_200(
     )
     response = client.get(f"/api/v1/tasks/{task.id}/sessions")
     assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert len(response.json()["data"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests — metrics cache invalidation
+# ---------------------------------------------------------------------------
+
+
+def test_update_task_to_done_invalidates_assignee_metrics_cache(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    cache = InMemoryCache()
+    svc = TaskService(
+        task_repo=task_repo,  # type: ignore[arg-type]
+        work_session_repo=session_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        cache=cache,
+    )
+    task = asyncio.run(
+        svc.create_task(
+            project_id=project_id, user_id=user_id, title="t", assignee_id=user_id
+        )
+    )
+    key = f"metrics:velocity:{user_id}:None:None"
+    asyncio.run(cache.set(key, '{"cached": true}', ttl_seconds=60))
+
+    asyncio.run(svc.update_task(task_id=task.id, user_id=user_id, status="done"))
+
+    assert asyncio.run(cache.get(key)) is None
+
+
+def test_update_task_to_non_done_status_does_not_invalidate_cache(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    cache = InMemoryCache()
+    svc = TaskService(
+        task_repo=task_repo,  # type: ignore[arg-type]
+        work_session_repo=session_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        cache=cache,
+    )
+    task = asyncio.run(
+        svc.create_task(
+            project_id=project_id, user_id=user_id, title="t", assignee_id=user_id
+        )
+    )
+    key = f"metrics:velocity:{user_id}:None:None"
+    asyncio.run(cache.set(key, '{"cached": true}', ttl_seconds=60))
+
+    asyncio.run(svc.update_task(task_id=task.id, user_id=user_id, status="in_progress"))
+
+    assert asyncio.run(cache.get(key)) == '{"cached": true}'
+
+
+def test_stop_session_invalidates_user_metrics_cache(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    cache = InMemoryCache()
+    svc = TaskService(
+        task_repo=task_repo,  # type: ignore[arg-type]
+        work_session_repo=session_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        cache=cache,
+    )
+    task = asyncio.run(
+        svc.create_task(project_id=project_id, user_id=user_id, title="t")
+    )
+    session_repo.seed_active(
+        task_id=task.id, user_id=user_id, started_at=datetime.now(UTC)
+    )
+    key = f"metrics:time_tracking:{user_id}:None:None"
+    asyncio.run(cache.set(key, '{"cached": true}', ttl_seconds=60))
+
+    asyncio.run(svc.stop_session(task_id=task.id, user_id=user_id))
+
+    assert asyncio.run(cache.get(key)) is None

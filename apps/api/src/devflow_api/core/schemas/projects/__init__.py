@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from devflow_api.core.schemas.pagination import PageMeta
+
 
 class CreateProjectRequest(BaseModel):
     org_id: uuid.UUID
@@ -20,6 +22,13 @@ class UpdateProjectRequest(BaseModel):
     github_repo_url: str | None = Field(default=None, max_length=1024)
 
 
+class ProjectStatsResponse(BaseModel):
+    total_tasks: int
+    open_tasks: int
+    overdue_tasks: int
+    completion_rate: float
+
+
 class ProjectResponse(BaseModel):
     id: uuid.UUID
     org_id: uuid.UUID
@@ -30,10 +39,11 @@ class ProjectResponse(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    stats: ProjectStatsResponse | None = None
 
     model_config = {"from_attributes": True}
 
 
 class ProjectListResponse(BaseModel):
-    items: list[ProjectResponse]
-    total: int
+    data: list[ProjectResponse]
+    meta: PageMeta

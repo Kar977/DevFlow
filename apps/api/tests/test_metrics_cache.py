@@ -7,6 +7,7 @@ Tests are organised in three groups:
 """
 
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 import pytest
@@ -61,6 +62,28 @@ async def test_in_memory_cache_clear_removes_all_entries() -> None:
     assert await cache.get("b") is None
 
 
+async def test_in_memory_cache_delete_matching_removes_matched_keys() -> None:
+    cache = InMemoryCache()
+    await cache.set("metrics:summary:u1:x", "a", ttl_seconds=60)
+    await cache.set("metrics:velocity:u1:y", "b", ttl_seconds=60)
+    await cache.set("metrics:summary:u2:z", "c", ttl_seconds=60)
+
+    await cache.delete_matching("u1")
+
+    assert await cache.get("metrics:summary:u1:x") is None
+    assert await cache.get("metrics:velocity:u1:y") is None
+    assert await cache.get("metrics:summary:u2:z") == "c"
+
+
+async def test_in_memory_cache_delete_matching_no_match_is_noop() -> None:
+    cache = InMemoryCache()
+    await cache.set("metrics:summary:u1:x", "a", ttl_seconds=60)
+
+    await cache.delete_matching("nonexistent")
+
+    assert await cache.get("metrics:summary:u1:x") == "a"
+
+
 async def test_in_memory_cache_satisfies_protocol() -> None:
     """InMemoryCache is structurally compatible with CacheBackend Protocol."""
     cache: CacheBackend = InMemoryCache()
@@ -98,6 +121,57 @@ async def test_redis_cache_set_is_noop_on_connection_error() -> None:
     cache = RedisCache(_BrokenRedis())  # type: ignore[arg-type]
     # Must not raise even when Redis is down
     await cache.set("some-key", "value", ttl_seconds=60)
+
+
+class _BrokenRedisScan:
+    """Stub whose scan_iter raises — simulates Redis being down mid-SCAN."""
+
+    async def scan_iter(self, match: str) -> AsyncIterator[str]:
+        raise ConnectionError("Redis unavailable")
+        yield  # pragma: no cover — makes this an async generator function
+
+
+async def test_redis_cache_delete_matching_is_noop_on_connection_error() -> None:
+    cache = RedisCache(_BrokenRedisScan())  # type: ignore[arg-type]
+    # Must not raise even when Redis is down
+    await cache.delete_matching("whatever")
+
+
+class _FakeRedisScan:
+    """Stub with in-memory SCAN + DEL semantics, for testing delete_matching."""
+
+    def __init__(self, keys: list[str]) -> None:
+        self._keys = keys
+        self.deleted: list[str] = []
+
+    async def scan_iter(self, match: str) -> AsyncIterator[str]:
+        needle = match.strip("*")
+        for key in self._keys:
+            if needle in key:
+                yield key
+
+    async def delete(self, *keys: str) -> None:
+        self.deleted.extend(keys)
+
+
+async def test_redis_cache_delete_matching_deletes_matched_keys() -> None:
+    client = _FakeRedisScan(
+        ["metrics:summary:u1:x", "metrics:velocity:u1:y", "metrics:summary:u2:z"]
+    )
+    cache = RedisCache(client)  # type: ignore[arg-type]
+
+    await cache.delete_matching("u1")
+
+    assert set(client.deleted) == {"metrics:summary:u1:x", "metrics:velocity:u1:y"}
+
+
+async def test_redis_cache_delete_matching_no_match_deletes_nothing() -> None:
+    client = _FakeRedisScan(["metrics:summary:u1:x"])
+    cache = RedisCache(client)  # type: ignore[arg-type]
+
+    await cache.delete_matching("nonexistent")
+
+    assert client.deleted == []
 
 
 # ---------------------------------------------------------------------------
