@@ -402,7 +402,7 @@ class MetricsService:
     async def get_project_metrics(
         self, *, project_id: uuid.UUID, user_id: uuid.UUID
     ) -> ProjectMetricsResponse:
-        key = f"metrics:project:{project_id}:{user_id}"
+        key = f"metrics:project:{user_id}:{project_id}"
         return await self._cached(
             key,
             ProjectMetricsResponse,
