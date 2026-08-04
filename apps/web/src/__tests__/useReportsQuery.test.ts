@@ -58,8 +58,8 @@ describe("useReportsQuery", () => {
     server.use(
       http.get("*/reports", () =>
         HttpResponse.json({
-          items: [{ ...baseReport, status: "generating" }],
-          total: 1,
+          data: [{ ...baseReport, status: "generating" }],
+          meta: { total: 1, limit: 50, offset: 0 },
         })
       )
     );

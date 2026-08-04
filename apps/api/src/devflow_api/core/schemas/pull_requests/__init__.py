@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from devflow_api.core.schemas.pagination import PageMeta
+
 
 class ReviewResponse(BaseModel):
     id: uuid.UUID
@@ -39,5 +41,5 @@ class PullRequestDetailResponse(PullRequestResponse):
 
 
 class PullRequestListResponse(BaseModel):
-    items: list[PullRequestResponse]
-    total: int
+    data: list[PullRequestResponse]
+    meta: PageMeta

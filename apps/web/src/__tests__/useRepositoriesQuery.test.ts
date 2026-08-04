@@ -32,7 +32,7 @@ describe("useRepositoriesQuery", () => {
         capturedOrgId = new URL(request.url).searchParams.get(
           "organization_id"
         );
-        return HttpResponse.json({ items: [sampleRepo] });
+        return HttpResponse.json({ data: [sampleRepo] });
       })
     );
     const { result } = renderHook(() => useRepositoriesQuery(ORG_ID), {
@@ -47,7 +47,7 @@ describe("useRepositoriesQuery", () => {
 
   it("returns empty list when no repos", async () => {
     server.use(
-      http.get("*/repositories", () => HttpResponse.json({ items: [] }))
+      http.get("*/repositories", () => HttpResponse.json({ data: [] }))
     );
     const { result } = renderHook(() => useRepositoriesQuery(ORG_ID), {
       wrapper: wrapper(),

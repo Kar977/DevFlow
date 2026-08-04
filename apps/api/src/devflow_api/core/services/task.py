@@ -124,7 +124,7 @@ class TaskService:
         assignee_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[tuple[Task, int]]:
+    ) -> tuple[list[tuple[Task, int]], int]:
         await self._require_project_access(project_id=project_id, user_id=user_id)
         tasks = await self._task_repo.list_for_project(
             project_id,
@@ -136,7 +136,10 @@ class TaskService:
         tracked = await self._work_session_repo.tracked_seconds_for_tasks(
             [t.id for t in tasks]
         )
-        return [(task, tracked.get(task.id, 0)) for task in tasks]
+        total = await self._task_repo.count_for_project(
+            project_id, status=status, assignee_id=assignee_id
+        )
+        return [(task, tracked.get(task.id, 0)) for task in tasks], total
 
     async def update_task(
         self,

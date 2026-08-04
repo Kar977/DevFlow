@@ -11,6 +11,7 @@ from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.pull_request import PullRequestRepository
 from devflow_api.core.repositories.repository import RepositoryRepository
+from devflow_api.core.schemas.pagination import PageMeta
 from devflow_api.core.schemas.pull_requests import (
     PullRequestDetailResponse,
     PullRequestListResponse,
@@ -59,7 +60,9 @@ class PullRequestService:
         )
         name_map = await self._repository_names(org_id)
         items = [self._to_response(pr, name_map) for pr in prs]
-        return PullRequestListResponse(items=items, total=total)
+        return PullRequestListResponse(
+            data=items, meta=PageMeta(total=total, limit=limit, offset=offset)
+        )
 
     async def get_pull_request(
         self, *, pr_id: uuid.UUID, org_id: uuid.UUID, user_id: uuid.UUID

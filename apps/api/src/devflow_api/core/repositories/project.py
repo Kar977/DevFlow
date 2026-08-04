@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.models.organization_member import OrganizationMember
@@ -63,6 +63,21 @@ class ProjectRepository:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_for_org(self, org_id: uuid.UUID) -> int:
+        stmt = select(func.count()).select_from(Project).where(Project.org_id == org_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
+    async def count_for_user(self, user_id: uuid.UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(Project)
+            .join(OrganizationMember, OrganizationMember.org_id == Project.org_id)
+            .where(OrganizationMember.user_id == user_id)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
 
     async def update(
         self,

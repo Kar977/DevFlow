@@ -37,7 +37,10 @@ export function useTasksQuery(params: TasksParams) {
     queryFn: () =>
       apiClient
         .get("/tasks", { params })
-        .then((r) => r.data as { items: Task[]; total: number }),
+        .then((r) => {
+          const body = r.data as { data: Task[]; meta: { total: number } };
+          return { items: body.data, total: body.meta.total };
+        }),
     enabled: !!params.project_id,
   });
 }

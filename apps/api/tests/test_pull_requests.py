@@ -251,8 +251,8 @@ def test_list_pull_requests_empty(client: TestClient) -> None:
     response = client.get(f"/api/v1/pull-requests?organization_id={ORG_ID}")
     assert response.status_code == 200
     body = response.json()
-    assert body["items"] == []
-    assert body["total"] == 0
+    assert body["data"] == []
+    assert body["meta"]["total"] == 0
 
 
 def test_list_pull_requests_returns_items(
@@ -263,8 +263,8 @@ def test_list_pull_requests_returns_items(
     response = client.get(f"/api/v1/pull-requests?organization_id={ORG_ID}")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 2
-    assert body["items"][0]["repository_full_name"] == REPO_FULL_NAME
+    assert body["meta"]["total"] == 2
+    assert body["data"][0]["repository_full_name"] == REPO_FULL_NAME
 
 
 def test_list_pull_requests_filters_state(
@@ -274,8 +274,8 @@ def test_list_pull_requests_filters_state(
     pr_repo.seed(_make_pr(state="merged"))
     response = client.get(f"/api/v1/pull-requests?organization_id={ORG_ID}&state=open")
     assert response.status_code == 200
-    assert response.json()["total"] == 1
-    assert response.json()["items"][0]["state"] == "open"
+    assert response.json()["meta"]["total"] == 1
+    assert response.json()["data"][0]["state"] == "open"
 
 
 def test_list_pull_requests_requires_org_param(client: TestClient) -> None:

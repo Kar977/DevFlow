@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, status
 
+from devflow_api.core.schemas.pagination import PageMeta
 from devflow_api.core.schemas.projects import (
     CreateProjectRequest,
     ProjectListResponse,
@@ -49,11 +50,13 @@ async def list_projects(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectListResponse:
-    projects = await service.list_projects(
+    projects, total = await service.list_projects(
         user_id=subject.user_id, org_id=org_id, limit=limit, offset=offset
     )
     items = [ProjectResponse.model_validate(p) for p in projects]
-    return ProjectListResponse(items=items, total=len(items))
+    return ProjectListResponse(
+        data=items, meta=PageMeta(total=total, limit=limit, offset=offset)
+    )
 
 
 @router.get(

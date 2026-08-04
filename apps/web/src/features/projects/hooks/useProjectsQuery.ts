@@ -28,7 +28,10 @@ export function useProjectsQuery() {
     queryFn: () =>
       apiClient
         .get("/projects", { params: { org_id: activeOrgId } })
-        .then((r) => r.data as { items: Project[]; total: number }),
+        .then((r) => {
+          const body = r.data as { data: Project[]; meta: { total: number } };
+          return { items: body.data, total: body.meta.total };
+        }),
     enabled: !!activeOrgId,
   });
 }

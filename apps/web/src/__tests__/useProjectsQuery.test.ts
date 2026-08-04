@@ -19,8 +19,8 @@ describe("useProjectsQuery", () => {
     server.use(
       http.get("*/projects", () =>
         HttpResponse.json({
-          items: [{ id: "p1", name: "DevFlow", status: "active", org_id: "org-1", created_by: "u1", created_at: "2024-01-01", updated_at: "2024-01-01" }],
-          total: 1,
+          data: [{ id: "p1", name: "DevFlow", status: "active", org_id: "org-1", created_by: "u1", created_at: "2024-01-01", updated_at: "2024-01-01" }],
+          meta: { total: 1, limit: 50, offset: 0 },
         })
       )
     );

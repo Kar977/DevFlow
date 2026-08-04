@@ -11,7 +11,10 @@ export function useOrgsQuery() {
     queryKey: orgQueryKeys.list(),
     queryFn: async () => {
       const res = await apiClient.get("/organizations");
-      return res.data as { items: Array<{ id: string; name: string; slug: string }> };
+      const body = res.data as {
+        data: Array<{ id: string; name: string; slug: string }>;
+      };
+      return { items: body.data };
     },
   });
 }

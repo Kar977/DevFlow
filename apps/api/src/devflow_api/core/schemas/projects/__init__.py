@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from devflow_api.core.schemas.pagination import PageMeta
+
 
 class CreateProjectRequest(BaseModel):
     org_id: uuid.UUID
@@ -35,5 +37,5 @@ class ProjectResponse(BaseModel):
 
 
 class ProjectListResponse(BaseModel):
-    items: list[ProjectResponse]
-    total: int
+    data: list[ProjectResponse]
+    meta: PageMeta

@@ -122,6 +122,20 @@ class FakeTaskRepository:
             items = [t for t in items if t.assignee_id == assignee_id]
         return items[offset : offset + limit]
 
+    async def count_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ) -> int:
+        items = [t for t in self._tasks.values() if t.project_id == project_id]
+        if status is not None:
+            items = [t for t in items if t.status == status]
+        if assignee_id is not None:
+            items = [t for t in items if t.assignee_id == assignee_id]
+        return len(items)
+
     async def update(
         self,
         task: Task,
@@ -385,7 +399,7 @@ def test_list_tasks_returns_200(
     _make_task(service, project_id=project_id, user_id=user_id)
     response = client.get(f"/api/v1/tasks?project_id={project_id}")
     assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert response.json()["meta"]["total"] == 1
 
 
 def test_list_tasks_filtered_by_status(
@@ -398,7 +412,7 @@ def test_list_tasks_filtered_by_status(
     # all seeded tasks are 'backlog'; filtering by 'done' yields none
     response = client.get(f"/api/v1/tasks?project_id={project_id}&status=done")
     assert response.status_code == 200
-    assert response.json()["total"] == 0
+    assert response.json()["meta"]["total"] == 0
 
 
 def test_list_tasks_missing_project_returns_422(client: TestClient) -> None:
@@ -429,7 +443,7 @@ def test_list_tasks_returns_accumulated_tracked_seconds(
     )
     response = client.get(f"/api/v1/tasks?project_id={project_id}")
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["tracked_seconds"] == 900
 
@@ -692,4 +706,4 @@ def test_list_sessions_returns_200(
     )
     response = client.get(f"/api/v1/tasks/{task.id}/sessions")
     assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert len(response.json()["data"]) == 1

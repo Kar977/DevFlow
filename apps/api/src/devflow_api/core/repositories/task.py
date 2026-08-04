@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.models.task import Task
@@ -63,6 +63,23 @@ class TaskRepository:
         stmt = stmt.order_by(Task.created_at.desc()).limit(limit).offset(offset)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ) -> int:
+        stmt = (
+            select(func.count()).select_from(Task).where(Task.project_id == project_id)
+        )
+        if status is not None:
+            stmt = stmt.where(Task.status == status)
+        if assignee_id is not None:
+            stmt = stmt.where(Task.assignee_id == assignee_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
 
     async def get_by_github_pr_url(
         self, *, project_id: uuid.UUID, github_pr_url: str

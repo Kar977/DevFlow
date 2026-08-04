@@ -24,7 +24,7 @@ describe("useOrgMembersQuery", () => {
     };
     server.use(
       http.get("*/organizations/org-1/members", () =>
-        HttpResponse.json({ items: [member], total: 1 })
+        HttpResponse.json({ data: [member] })
       )
     );
 

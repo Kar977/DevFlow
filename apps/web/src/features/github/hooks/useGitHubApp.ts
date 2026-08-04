@@ -38,7 +38,10 @@ export function useInstallationsQuery(orgId: string | null) {
         .get("/integrations/github/app/installations", {
           params: { organization_id: orgId },
         })
-        .then((r) => r.data as { items: Installation[] }),
+        .then((r) => {
+          const body = r.data as { data: Installation[] };
+          return { items: body.data };
+        }),
   });
 }
 
@@ -115,6 +118,9 @@ export function useSyncRunsQuery(orgId: string | null) {
         .get("/integrations/github/sync-runs", {
           params: { organization_id: orgId },
         })
-        .then((r) => r.data as { items: SyncRun[] }),
+        .then((r) => {
+          const body = r.data as { data: SyncRun[] };
+          return { items: body.data };
+        }),
   });
 }
