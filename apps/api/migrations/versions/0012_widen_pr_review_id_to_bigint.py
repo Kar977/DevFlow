@@ -31,6 +31,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Unsafe if any synced review id exceeds int32 range by this point (the
+    # exact case this migration exists for) — narrowing will fail or
+    # truncate depending on the driver. Widening migrations are generally
+    # not meant to be rolled back once real data has grown into the wider
+    # range; do not run this against a database with real GitHub review data.
     op.alter_column(
         "pull_request_reviews",
         "github_review_id",
