@@ -17,6 +17,8 @@ from devflow_api.core.schemas.metrics import PRDashboardResponse
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.pr_metrics import (
     PRMetricsService,
+    _build_pr_trends,
+    _week_start,
     get_pr_metrics_service,
 )
 from devflow_api.main import create_app
@@ -316,6 +318,132 @@ def test_list_members_marks_unlinked() -> None:
     assert by_id[linked_id].github_login == "octocat"
     assert by_id[unlinked_id].github_login is None
     assert by_id[unlinked_id].display_name == "unlinked@example.com"
+
+
+# ---------------------------------------------------------------------------
+# _build_pr_trends — pure function, no fakes needed
+# ---------------------------------------------------------------------------
+
+
+def test_build_pr_trends_zero_fills_empty_weeks() -> None:
+    result = _build_pr_trends([], now=_NOW, weeks=4)
+    assert len(result.weekly) == 4
+    assert all(p.opened == 0 and p.merged == 0 for p in result.weekly)
+    assert all(p.avg_time_to_first_review_h is None for p in result.weekly)
+    week_starts = [p.week_start for p in result.weekly]
+    assert week_starts == sorted(week_starts)
+
+
+def test_build_pr_trends_buckets_opened_by_created_at() -> None:
+    # Hour-based offsets (not day-based) so the PRs stay in *today's* ISO
+    # week regardless of which weekday the suite happens to run on.
+    pr1, pr2 = _pr(), _pr()
+    pr1.created_at_github = _NOW - timedelta(hours=2)
+    pr2.created_at_github = _NOW - timedelta(hours=1)
+    result = _build_pr_trends([pr1, pr2], now=_NOW, weeks=4)
+    assert result.weekly[-1].opened == 2
+    assert result.weekly[-1].merged == 0
+
+
+def test_build_pr_trends_merged_buckets_by_merged_at_not_created_at() -> None:
+    # Opened 3 whole weeks ago (a 21-day, i.e. exact-multiple-of-7 offset
+    # keeps ISO-week alignment regardless of today's weekday) but merged
+    # this week: must count in the MERGED week's bucket, not the OPENED
+    # week's bucket.
+    pr = _pr(created_offset_days=21, state="merged")
+    pr.merged_at = _NOW - timedelta(hours=2)
+    result = _build_pr_trends([pr], now=_NOW, weeks=4)
+    assert result.weekly[-1].merged == 1
+    assert result.weekly[-1].opened == 0
+    assert result.weekly[0].opened == 1
+    assert result.weekly[0].merged == 0
+
+
+def test_build_pr_trends_avg_review_time_is_cohort_by_created_week() -> None:
+    # Anchored to the start of the *current* ISO week (not to "now" minus a
+    # fixed offset) so a 24h created→reviewed gap can never spill into the
+    # previous week regardless of what time of day the suite runs.
+    week_start = datetime.combine(_week_start(_NOW), datetime.min.time(), tzinfo=UTC)
+    pr = _pr()
+    pr.created_at_github = week_start
+    pr.first_review_at = week_start + timedelta(hours=24)
+    result = _build_pr_trends([pr], now=_NOW, weeks=2)
+    assert result.weekly[-1].avg_time_to_first_review_h == pytest.approx(24.0)
+
+
+def test_build_pr_trends_out_of_window_prs_are_excluded() -> None:
+    pr = _pr(created_offset_days=100)
+    result = _build_pr_trends([pr], now=_NOW, weeks=4)
+    assert all(p.opened == 0 for p in result.weekly)
+
+
+# ---------------------------------------------------------------------------
+# get_pr_trends — service + route
+# ---------------------------------------------------------------------------
+
+
+def test_get_pr_trends_rejects_non_member() -> None:
+    service = _service([], org_repo=FakeOrgRepo())  # no membership seeded
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(service.get_pr_trends(org_id=ORG_ID, user_id=USER_ID))
+    assert exc_info.value.status_code == 403
+
+
+def test_get_pr_trends_member_without_link_returns_404() -> None:
+    service = _service([])
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.get_pr_trends(
+                org_id=ORG_ID, user_id=USER_ID, member_user_id=uuid.uuid4()
+            )
+        )
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.code == "member_not_linked"
+
+
+def test_get_pr_trends_returns_requested_week_count() -> None:
+    service = _service([_pr(created_offset_days=1)])
+    result = asyncio.run(service.get_pr_trends(org_id=ORG_ID, user_id=USER_ID, weeks=6))
+    assert len(result.weekly) == 6
+
+
+def test_pr_trends_route_returns_200() -> None:
+    prs = [_pr(created_offset_days=1)]
+    service = _service(prs)
+    app = create_app()
+    app.dependency_overrides[get_pr_metrics_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(USER_ID)
+    )
+    with TestClient(app) as c:
+        response = c.get(f"/api/v1/metrics/pr-trends?organization_id={ORG_ID}&weeks=4")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["weekly"]) == 4
+
+
+def test_pr_trends_route_requires_org_param() -> None:
+    service = _service([])
+    app = create_app()
+    app.dependency_overrides[get_pr_metrics_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(USER_ID)
+    )
+    with TestClient(app) as c:
+        response = c.get("/api/v1/metrics/pr-trends")
+    assert response.status_code == 422
+
+
+def test_pr_trends_route_rejects_zero_weeks() -> None:
+    service = _service([])
+    app = create_app()
+    app.dependency_overrides[get_pr_metrics_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(USER_ID)
+    )
+    with TestClient(app) as c:
+        response = c.get(f"/api/v1/metrics/pr-trends?organization_id={ORG_ID}&weeks=0")
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

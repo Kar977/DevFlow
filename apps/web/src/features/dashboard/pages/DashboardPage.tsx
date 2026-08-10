@@ -1,11 +1,34 @@
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { KpiCard } from "../components/KpiCard";
 import { PRDashboardTab } from "../components/PRDashboardTab";
+import {
+  VelocityPanel,
+  TimeTrackingPanel,
+  CompletionRatePanel,
+  EstimationAccuracyPanel,
+  useMetricsQueries,
+} from "@/features/metrics";
+
+// Same 30-day default window `useDashboardData` uses for velocity/summary —
+// react-query dedupes the shared `["metrics", "velocity", params]` query
+// automatically as long as the params match, so no extra network request.
+function defaultDateTo(): string {
+  return new Date().toISOString().split("T")[0]!;
+}
+
+function defaultDateFrom(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().split("T")[0]!;
+}
 
 export function DashboardPage() {
   const { summary, velocity, isLoading } = useDashboardData();
+  const { timeTracking, completionRate, estimationAccuracy } = useMetricsQueries({
+    date_from: defaultDateFrom(),
+    date_to: defaultDateTo(),
+  });
 
   return (
     <div className="space-y-6">
@@ -31,8 +54,8 @@ export function DashboardPage() {
                   <>
                     <KpiCard
                       title="Ukończone zadania"
-                      value={summary.completed_tasks?.value ?? 0}
-                      delta={summary.completed_tasks?.delta_pct ?? 0}
+                      value={summary.tasks_completed?.value ?? 0}
+                      delta={summary.tasks_completed?.delta_pct ?? 0}
                     />
                     <KpiCard
                       title="Aktywne godziny"
@@ -43,26 +66,21 @@ export function DashboardPage() {
                 )}
               </div>
 
-              {velocity?.weeks?.length > 0 && (
-                <div className="rounded-lg border border-border bg-card p-6">
-                  <h2 className="mb-4 text-sm font-medium text-muted-foreground">
-                    Velocity (zadania/tydzień)
-                  </h2>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <AreaChart data={velocity.weeks}>
-                      <XAxis dataKey="week" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <Tooltip />
-                      <Area
-                        type="monotone"
-                        dataKey="tasks_closed"
-                        stroke="#6366f1"
-                        fill="#6366f120"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
+              <div className="grid gap-4 md:grid-cols-2">
+                <VelocityPanel data={velocity} />
+                <TimeTrackingPanel
+                  data={timeTracking.data}
+                  isLoading={timeTracking.isLoading}
+                />
+                <CompletionRatePanel
+                  data={completionRate.data}
+                  isLoading={completionRate.isLoading}
+                />
+                <EstimationAccuracyPanel
+                  data={estimationAccuracy.data}
+                  isLoading={estimationAccuracy.isLoading}
+                />
+              </div>
             </div>
           )}
         </TabsContent>

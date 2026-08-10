@@ -11,6 +11,7 @@ from devflow_api.core.schemas.metrics import (
     PRDashboardMembersResponse,
     PRDashboardResponse,
     ProjectMetricsResponse,
+    PRTrendsResponse,
     StreakResponse,
     SummaryResponse,
     TimeTrackingResponse,
@@ -150,3 +151,32 @@ async def get_pr_dashboard_members(
     service: PRMetricsService = Depends(get_pr_metrics_service),
 ) -> PRDashboardMembersResponse:
     return await service.list_members(org_id=organization_id, user_id=subject.user_id)
+
+
+@router.get(
+    "/pr-trends",
+    response_model=PRTrendsResponse,
+    summary="Weekly PR flow trends for an organization",
+)
+async def get_pr_trends(
+    organization_id: uuid.UUID = Query(...),
+    member_user_id: uuid.UUID | None = Query(default=None),
+    weeks: int = Query(default=12, ge=1, le=52),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: PRMetricsService = Depends(get_pr_metrics_service),
+) -> PRTrendsResponse:
+    """Weekly-bucketed PR opened/merged counts and review-latency trend.
+
+    ``opened`` is bucketed by ``created_at_github``; ``merged`` by
+    ``merged_at`` (only merged PRs). ``avg_time_to_first_review_h`` is a
+    cohort reading — the average review-wait of PRs *opened* in that week
+    (not reviewed in that week) — so the most recent 1-2 weeks may look
+    faster than they really are, since slow-to-review PRs in those weeks
+    have not been reviewed yet.
+    """
+    return await service.get_pr_trends(
+        org_id=organization_id,
+        user_id=subject.user_id,
+        member_user_id=member_user_id,
+        weeks=weeks,
+    )
