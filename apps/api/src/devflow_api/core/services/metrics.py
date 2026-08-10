@@ -40,7 +40,9 @@ from devflow_api.core.schemas.metrics import (
     SummaryResponse,
     TimeTrackingResponse,
     VelocityResponse,
+    WeeklyVelocityPointResponse,
 )
+from devflow_api.core.services.cache_aside import cached
 
 _DEFAULT_PERIOD_DAYS = 30
 
@@ -75,6 +77,12 @@ def _metric_value(value: float, prev_value: float) -> MetricValueResponse:
 
 def _completed_in(task: Task, start: datetime, end: datetime) -> bool:
     return task.status == "done" and start <= _as_utc(task.updated_at) <= end
+
+
+def _week_start(moment: datetime) -> date:
+    """Monday of the ISO week containing *moment*, in UTC."""
+    day = _as_utc(moment).date()
+    return day - timedelta(days=day.weekday())
 
 
 def _session_minutes_in(session: WorkSession, start: datetime, end: datetime) -> float:
@@ -117,19 +125,11 @@ class MetricsService:
     ) -> T:
         """Return a cached result, or compute, store, and return a fresh one.
 
-        Falls back to computing without caching when ``self._cache is None``
-        or when any cache operation raises an exception.
+        Delegates to the shared :func:`cache_aside.cached` helper — kept as a
+        thin instance method so existing call sites (``self._cached(...)``)
+        stay unchanged.
         """
-        if self._cache is None:
-            return await compute()
-
-        raw = await self._cache.get(key)
-        if raw is not None:
-            return model_cls.model_validate_json(raw)
-
-        result = await compute()
-        await self._cache.set(key, result.model_dump_json(), self._ttl_seconds)
-        return result
+        return await cached(self._cache, key, model_cls, self._ttl_seconds, compute)
 
     # ------------------------------------------------------------------
     # Public API — each method delegates computation to _compute_* and
@@ -185,7 +185,11 @@ class MetricsService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> VelocityResponse:
-        key = f"metrics:velocity:{user_id}:{date_from}:{date_to}"
+        # Cache key is versioned ("v2") because the response now includes the
+        # `weekly` field: a blob written by the pre-v2 code would fail
+        # validation on read (missing required field) and 500 for up to the
+        # cache TTL after deploy.
+        key = f"metrics:velocity:v2:{user_id}:{date_from}:{date_to}"
         return await self._cached(
             key,
             VelocityResponse,
@@ -212,6 +216,21 @@ class MetricsService:
         prev_avg = prev_done / weeks
         trend_pct = ((avg - prev_avg) / prev_avg * 100) if prev_avg else None
 
+        # Zero-filled weekly buckets: a sparse series would lie about the
+        # x-axis on a chart, so every ISO week in [start, end] gets an entry.
+        buckets: dict[date, int] = {}
+        cursor, last = _week_start(start), _week_start(end)
+        while cursor <= last:
+            buckets[cursor] = 0
+            cursor += timedelta(days=7)
+        for task in tasks:
+            if _completed_in(task, start, end):
+                buckets[_week_start(task.updated_at)] += 1
+        weekly = [
+            WeeklyVelocityPointResponse(week_start=day, tasks_completed=count)
+            for day, count in sorted(buckets.items())
+        ]
+
         return VelocityResponse(
             period_from=start,
             period_to=end,
@@ -219,6 +238,7 @@ class MetricsService:
             weeks=round(weeks, 2),
             average_per_week=round(avg, 2),
             trend_pct=round(trend_pct, 2) if trend_pct is not None else None,
+            weekly=weekly,
         )
 
     async def get_time_tracking(

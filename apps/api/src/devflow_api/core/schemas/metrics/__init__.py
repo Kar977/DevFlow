@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MetricValueResponse(BaseModel):
@@ -21,13 +21,21 @@ class SummaryResponse(BaseModel):
     active_hours: MetricValueResponse
 
 
+class WeeklyVelocityPointResponse(BaseModel):
+    """Completed-task count for one ISO week (Monday-anchored, UTC)."""
+
+    week_start: date
+    tasks_completed: int
+
+
 class VelocityResponse(BaseModel):
     period_from: datetime
     period_to: datetime
     total_done: int
-    weeks: float
+    weeks: float = Field(description="Length of the period in weeks (>= 1.0).")
     average_per_week: float
     trend_pct: float | None
+    weekly: list[WeeklyVelocityPointResponse]
 
 
 class DailyHoursResponse(BaseModel):
@@ -93,3 +101,24 @@ class PRDashboardMembersResponse(BaseModel):
     """Not paginated — `meta` is omitted per the documented envelope contract."""
 
     data: list[PRDashboardMemberResponse]
+
+
+class PRTrendPointResponse(BaseModel):
+    """One ISO week of PR flow for an organization (Monday-anchored, UTC).
+
+    ``opened`` buckets by ``created_at_github``; ``merged`` buckets by
+    ``merged_at`` (only PRs with ``state == "merged"``); ``avg_time_to_first_review_h``
+    is a *cohort* reading — the average review-wait of PRs opened in this week
+    (not reviewed in this week) — over PRs with a non-null ``first_review_at``.
+    """
+
+    week_start: date
+    opened: int
+    merged: int
+    avg_time_to_first_review_h: float | None
+
+
+class PRTrendsResponse(BaseModel):
+    period_from: datetime
+    period_to: datetime
+    weekly: list[PRTrendPointResponse]

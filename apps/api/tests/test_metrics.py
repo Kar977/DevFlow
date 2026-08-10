@@ -224,6 +224,62 @@ def test_velocity_returns_total_and_average(
     assert body["weeks"] >= 1
 
 
+def test_velocity_weekly_sums_to_total_done(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    metrics_repo.user_tasks = [
+        _task(status="done", updated_at=NOW - timedelta(days=1)),
+        _task(status="done", updated_at=NOW - timedelta(days=8)),
+        _task(status="done", updated_at=NOW - timedelta(days=8)),
+    ]
+    response = client.get("/api/v1/metrics/velocity")
+    assert response.status_code == 200
+    body = response.json()
+    weekly_total = sum(point["tasks_completed"] for point in body["weekly"])
+    assert weekly_total == body["total_done"]
+
+
+def test_velocity_weekly_is_zero_filled_for_empty_weeks(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    metrics_repo.user_tasks = []
+    response = client.get(
+        "/api/v1/metrics/velocity",
+        params={
+            "date_from": (NOW - timedelta(days=21)).isoformat(),
+            "date_to": NOW.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["weekly"]) >= 3
+    assert all(point["tasks_completed"] == 0 for point in body["weekly"])
+    week_starts = [point["week_start"] for point in body["weekly"]]
+    assert week_starts == sorted(week_starts)
+
+
+def test_velocity_weekly_buckets_by_iso_week(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    # Two tasks completed in the same ISO week must land in the same bucket.
+    # Anchored to *last* week's Monday (not this week's) so both points stay
+    # safely in the past regardless of which weekday the suite runs on.
+    monday_last_week = NOW - timedelta(days=NOW.weekday() + 7)
+    metrics_repo.user_tasks = [
+        _task(status="done", updated_at=monday_last_week),
+        _task(status="done", updated_at=monday_last_week + timedelta(days=2)),
+    ]
+    response = client.get("/api/v1/metrics/velocity")
+    assert response.status_code == 200
+    body = response.json()
+    expected_week = monday_last_week.date().isoformat()
+    bucket = next(p for p in body["weekly"] if p["week_start"] == expected_week)
+    assert bucket["tasks_completed"] == 2
+
+
 def test_time_tracking_buckets_daily_hours(
     client: TestClient,
     metrics_repo: FakeMetricsRepository,

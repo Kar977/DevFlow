@@ -45,17 +45,23 @@ Response `200 OK`:
 
 ### `GET /api/v1/metrics/velocity`
 
-Number of completed tasks per week (last N weeks).
+Number of tasks completed in the selected period, plus a zero-filled
+per-week breakdown of that same period.
 
 Query params:
-- `weeks` — number of weeks to look back (default 8, max 52)
+- `date_from`, `date_to` — ISO 8601 datetimes (default: last 30 days)
 
-Response `200 OK`:
+Response `200 OK` (actual shape — see `VelocityResponse` in
+`../../../core/schemas/metrics/__init__.py`):
 ```json
 {
-  "current_week": 9,
-  "trend": "up",
-  "data": [
+  "period_from": "2025-01-01T00:00:00Z",
+  "period_to": "2025-01-31T00:00:00Z",
+  "total_done": 27,
+  "weeks": 4.43,
+  "average_per_week": 6.09,
+  "trend_pct": 12.5,
+  "weekly": [
     { "week_start": "2025-01-06", "tasks_completed": 7 },
     { "week_start": "2025-01-13", "tasks_completed": 9 },
     { "week_start": "2025-01-20", "tasks_completed": 11 }
@@ -63,7 +69,10 @@ Response `200 OK`:
 }
 ```
 
-`trend`: `up` when the last 3 weeks are increasing, `down` when decreasing, `stable` otherwise.
+`weeks` is the length of the requested period in weeks (a float), **not** a
+series — the per-week series is `weekly`. Every ISO week (Monday-anchored,
+UTC) in `[period_from, period_to]` gets an entry, zero-filled when empty, so
+`sum(p.tasks_completed for p in weekly) == total_done`.
 
 ---
 
@@ -178,6 +187,42 @@ Response `200 OK`:
 ```
 
 `health_status`: `healthy` (<10% overdue), `at_risk` (10–30%), `critical` (>30%).
+
+---
+
+### `GET /api/v1/metrics/pr-trends`
+
+Weekly-bucketed GitHub PR flow for an organization — opened/merged counts
+plus review-latency trend. Backs the Dashboard's "Flow" charts.
+
+Query params:
+- `organization_id` — required
+- `member_user_id` — optional, filters to one org member's authored PRs
+  (resolved to a GitHub login; 404 `member_not_linked` if that member has no
+  linked GitHub account)
+- `weeks` — number of ISO weeks to look back, default 12, 1–52
+
+Response `200 OK` (see `PRTrendsResponse` in
+`../../../core/schemas/metrics/__init__.py`):
+```json
+{
+  "period_from": "2025-01-06T00:00:00Z",
+  "period_to": "2025-01-31T10:00:00Z",
+  "weekly": [
+    { "week_start": "2025-01-06", "opened": 5, "merged": 4, "avg_time_to_first_review_h": 6.2 },
+    { "week_start": "2025-01-13", "opened": 3, "merged": 2, "avg_time_to_first_review_h": null }
+  ]
+}
+```
+
+`opened` buckets by `created_at_github`; `merged` buckets by `merged_at`
+(only PRs with `state == "merged"`). `avg_time_to_first_review_h` is a
+**cohort** reading — the average review-wait of PRs *opened* in that week,
+not reviewed in that week — so the most recent 1-2 weeks can look faster
+than they really are, since slow-to-review PRs there have not been reviewed
+yet. Cached like the other endpoints, keyed by
+`org_id + author_login + weeks` (not `user_id` — the payload is identical
+for every member).
 
 ---
 
