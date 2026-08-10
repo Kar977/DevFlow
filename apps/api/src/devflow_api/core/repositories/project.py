@@ -97,6 +97,11 @@ class ProjectRepository:
         if github_repo_url is not None:
             project.github_repo_url = github_repo_url
         await self._session.flush()
+        # `updated_at` is set by an onupdate=func.now() server-side default;
+        # without a refresh the attribute stays expired and a later sync
+        # attribute read (e.g. ProjectResponse.model_validate) raises
+        # MissingGreenlet when it tries to lazily reload it.
+        await self._session.refresh(project)
         return project
 
     async def archive(self, project: Project) -> None:
