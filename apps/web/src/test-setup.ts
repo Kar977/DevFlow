@@ -28,6 +28,19 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
+// jsdom doesn't implement ResizeObserver, which recharts' ResponsiveContainer
+// requires — without this stub, any test that mounts a chart throws
+// "ResizeObserver is not defined". (ResponsiveContainer still measures 0×0
+// in jsdom regardless; tests that need real dimensions mock the container
+// per-test — see shared/charts/ChartCard.test.tsx.)
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+}
+
 // Provide a localStorage stub for test environments where jsdom's localStorage
 // is not available (e.g. when running under Node without a localstorage-file).
 if (typeof localStorage === "undefined" || localStorage === null) {
