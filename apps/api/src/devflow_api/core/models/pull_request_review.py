@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from devflow_api.core.database import Base
@@ -16,7 +16,7 @@ class PullRequestReview(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     pull_request_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("pull_requests.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    github_review_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    github_review_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     reviewer_login: Mapped[str] = mapped_column(String(255), nullable=False)
     state: Mapped[str] = mapped_column(String(50), nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(
