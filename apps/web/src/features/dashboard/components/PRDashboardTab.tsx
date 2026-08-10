@@ -3,8 +3,11 @@ import {
   usePRDashboardMembersQuery,
   usePRDashboardQuery,
 } from "../hooks/usePRDashboardQuery";
+import { usePRTrendsQuery } from "../hooks/usePRTrendsQuery";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { KpiCard } from "./KpiCard";
+import { PRThroughputChart } from "./PRThroughputChart";
+import { ReviewLatencyChart } from "./ReviewLatencyChart";
 
 export function PRDashboardTab() {
   const activeOrgId = useOrgStore((s) => s.activeOrgId);
@@ -15,6 +18,10 @@ export function PRDashboardTab() {
     memberUserId || undefined
   );
   const { data: members } = usePRDashboardMembersQuery(activeOrgId);
+  const { data: trends, isLoading: trendsLoading } = usePRTrendsQuery(
+    activeOrgId,
+    memberUserId || undefined
+  );
 
   if (isLoading) {
     return <div className="p-4 text-muted-foreground">Ładowanie metryk PR...</div>;
@@ -69,6 +76,11 @@ export function PRDashboardTab() {
           title="% z review"
           value={data.review_ratio !== null ? Math.round(data.review_ratio * 100) : 0}
         />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <PRThroughputChart data={trends} isLoading={trendsLoading} />
+        <ReviewLatencyChart data={trends} isLoading={trendsLoading} />
       </div>
     </div>
   );

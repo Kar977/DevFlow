@@ -1,32 +1,54 @@
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
+  ChartCard,
+  ChartTooltip,
+  useChartPalette,
+  CHART_MARGIN,
+  axisProps,
+  gridProps,
+  formatDayLabel,
+} from "@/shared/charts";
+import type { TimeTracking } from "@/shared/types";
 
 interface Props {
-  data?: { daily_hours: Array<{ date: string; hours: number }> };
+  data?: TimeTracking;
   isLoading?: boolean;
 }
 
 export function TimeTrackingPanel({ data, isLoading }: Props) {
+  const palette = useChartPalette();
+  const isEmpty = !data || data.daily.length === 0;
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">Godziny dziennie</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading && <p className="text-muted-foreground text-sm">Ładowanie...</p>}
-        {data?.daily_hours?.length ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={data.daily_hours}>
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Area type="monotone" dataKey="hours" stroke="#10b981" fill="#10b98120" />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          !isLoading && <p className="text-muted-foreground text-sm">Brak danych.</p>
-        )}
-      </CardContent>
-    </Card>
+    <ChartCard title="Godziny dziennie" isLoading={isLoading} isEmpty={isEmpty}>
+      <ResponsiveContainer width="100%" height={160}>
+        <AreaChart data={data?.daily ?? []} margin={CHART_MARGIN}>
+          <CartesianGrid {...gridProps(palette.chrome.grid)} />
+          <XAxis
+            dataKey="day"
+            tickFormatter={formatDayLabel}
+            {...axisProps(palette.chrome.axis)}
+          />
+          <YAxis {...axisProps(palette.chrome.axis)} />
+          <Tooltip content={<ChartTooltip />} />
+          <Area
+            type="monotone"
+            dataKey="hours"
+            name="Godziny"
+            stroke={palette.series.primary}
+            fill={palette.series.primary}
+            fillOpacity={0.12}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </ChartCard>
   );
 }
