@@ -40,6 +40,7 @@ class PullRequestService:
         repository_id: uuid.UUID | None = None,
         state: str | None = None,
         author_login: str | None = None,
+        sort: str = "newest",
         limit: int = 50,
         offset: int = 0,
     ) -> PullRequestListResponse:
@@ -49,6 +50,7 @@ class PullRequestService:
             repository_id=repository_id,
             state=state,
             author_login=author_login,
+            sort=sort,
             limit=limit,
             offset=offset,
         )

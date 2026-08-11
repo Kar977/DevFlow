@@ -73,6 +73,25 @@ describe("usePullRequestsQuery", () => {
     expect(result.current.data?.items).toHaveLength(0);
   });
 
+  it("forwards the sort param to the request", async () => {
+    let capturedSort: string | null = null;
+    server.use(
+      http.get("*/pull-requests", ({ request }) => {
+        capturedSort = new URL(request.url).searchParams.get("sort");
+        return HttpResponse.json({
+          data: [samplePR],
+          meta: { total: 1, limit: 50, offset: 0 },
+        });
+      })
+    );
+    const { result } = renderHook(
+      () => usePullRequestsQuery(ORG_ID, { sort: "oldest" }),
+      { wrapper: wrapper() }
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedSort).toBe("oldest");
+  });
+
   it("is disabled without an active organization", () => {
     const { result } = renderHook(() => usePullRequestsQuery(null), {
       wrapper: wrapper(),

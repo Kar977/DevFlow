@@ -27,6 +27,7 @@ async def list_pull_requests(
     repository_id: uuid.UUID | None = Query(default=None),
     state: str | None = None,
     author_login: str | None = None,
+    sort: str = Query(default="newest", pattern="^(newest|oldest)$"),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     subject: AuthenticatedSubject = Depends(get_current_subject),
@@ -38,6 +39,7 @@ async def list_pull_requests(
         repository_id=repository_id,
         state=state,
         author_login=author_login,
+        sort=sort,
         limit=limit,
         offset=offset,
     )

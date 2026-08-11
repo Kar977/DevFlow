@@ -33,6 +33,7 @@ interface PRsParams {
   state?: string;
   author_login?: string;
   repository_id?: string;
+  sort?: "newest" | "oldest";
   limit?: number;
   offset?: number;
 }

@@ -162,10 +162,12 @@ class FakePRRepo:
         repository_id: uuid.UUID | None = None,
         state: str | None = None,
         author_login: str | None = None,
+        sort: str = "newest",
         limit: int = 50,
         offset: int = 0,
     ) -> list[PullRequest]:
         result = self._filtered(org_id, repository_id, state, author_login)
+        result.sort(key=lambda pr: pr.created_at_github, reverse=(sort != "oldest"))
         return result[offset : offset + limit]
 
     async def count_for_org(
@@ -276,6 +278,37 @@ def test_list_pull_requests_filters_state(
     assert response.status_code == 200
     assert response.json()["meta"]["total"] == 1
     assert response.json()["data"][0]["state"] == "open"
+
+
+def test_list_pull_requests_default_sort_is_newest_first(
+    client: TestClient, pr_repo: FakePRRepo
+) -> None:
+    older = _make_pr(created_offset_days=10)
+    newer = _make_pr(created_offset_days=1)
+    pr_repo.seed(older)
+    pr_repo.seed(newer)
+    response = client.get(f"/api/v1/pull-requests?organization_id={ORG_ID}")
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()["data"]]
+    assert ids == [str(newer.id), str(older.id)]
+
+
+def test_list_pull_requests_sort_oldest_returns_oldest_first(
+    client: TestClient, pr_repo: FakePRRepo
+) -> None:
+    older = _make_pr(created_offset_days=10)
+    newer = _make_pr(created_offset_days=1)
+    pr_repo.seed(older)
+    pr_repo.seed(newer)
+    response = client.get(f"/api/v1/pull-requests?organization_id={ORG_ID}&sort=oldest")
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()["data"]]
+    assert ids == [str(older.id), str(newer.id)]
+
+
+def test_list_pull_requests_invalid_sort_returns_422(client: TestClient) -> None:
+    response = client.get(f"/api/v1/pull-requests?organization_id={ORG_ID}&sort=bogus")
+    assert response.status_code == 422
 
 
 def test_list_pull_requests_requires_org_param(client: TestClient) -> None:
