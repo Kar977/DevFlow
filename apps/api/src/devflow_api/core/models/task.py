@@ -27,6 +27,11 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set once by TaskService.update_task when status transitions into "done"
+    # (and cleared if it later transitions back out) — never written directly
+    # by the repository or client-supplied. Falls back to `updated_at` in
+    # MetricsService for rows written before this column existed.
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     github_pr_url: Mapped[str | None] = mapped_column(String(1024))
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=False

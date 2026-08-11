@@ -27,6 +27,7 @@ def _task(
     due_date: datetime | None = None,
     created_at: datetime | None = None,
     updated_at: datetime | None = None,
+    completed_at: datetime | None = None,
 ) -> Task:
     moment = NOW - timedelta(days=1)
     return Task(
@@ -43,6 +44,7 @@ def _task(
         created_by=uuid.uuid4(),
         created_at=created_at or moment,
         updated_at=updated_at or moment,
+        completed_at=completed_at,
     )
 
 
@@ -212,6 +214,39 @@ def test_summary_counts_completed_and_hours(
     assert body["active_hours"]["value"] == 2.0
 
 
+def test_summary_uses_completed_at_not_updated_at(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    """A done task edited long after completion must not re-enter the window
+    just because updated_at moved — that is exactly the bug completed_at
+    fixes."""
+    metrics_repo.user_tasks = [
+        _task(
+            status="done",
+            completed_at=NOW - timedelta(days=45),  # outside the 30d window
+            updated_at=NOW,  # edited today, e.g. reassigned
+        )
+    ]
+    response = client.get("/api/v1/metrics/summary")
+    assert response.status_code == 200
+    assert response.json()["tasks_completed"]["value"] == 0
+
+
+def test_metrics_fall_back_to_updated_at_when_completed_at_null(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    """Legacy rows written before the completed_at column existed must keep
+    behaving exactly as before: updated_at is the completion instant."""
+    metrics_repo.user_tasks = [
+        _task(status="done", completed_at=None, updated_at=NOW - timedelta(days=1))
+    ]
+    response = client.get("/api/v1/metrics/summary")
+    assert response.status_code == 200
+    assert response.json()["tasks_completed"]["value"] == 1
+
+
 def test_velocity_returns_total_and_average(
     client: TestClient,
     metrics_repo: FakeMetricsRepository,
@@ -278,6 +313,32 @@ def test_velocity_weekly_buckets_by_iso_week(
     expected_week = monday_last_week.date().isoformat()
     bucket = next(p for p in body["weekly"] if p["week_start"] == expected_week)
     assert bucket["tasks_completed"] == 2
+
+
+def test_velocity_weekly_buckets_by_completed_at(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    """Bucketing must key off completed_at, not updated_at, once the task
+    has been edited after completion."""
+    monday_last_week = NOW - timedelta(days=NOW.weekday() + 7)
+    monday_two_weeks_ago = monday_last_week - timedelta(days=7)
+    metrics_repo.user_tasks = [
+        _task(
+            status="done",
+            completed_at=monday_two_weeks_ago,
+            updated_at=monday_last_week,  # would land in the wrong bucket
+        ),
+    ]
+    response = client.get("/api/v1/metrics/velocity")
+    assert response.status_code == 200
+    body = response.json()
+    expected_week = monday_two_weeks_ago.date().isoformat()
+    bucket = next(p for p in body["weekly"] if p["week_start"] == expected_week)
+    assert bucket["tasks_completed"] == 1
+    other_week = monday_last_week.date().isoformat()
+    other_bucket = next(p for p in body["weekly"] if p["week_start"] == other_week)
+    assert other_bucket["tasks_completed"] == 0
 
 
 def test_time_tracking_buckets_daily_hours(
@@ -365,6 +426,28 @@ def test_streaks_counts_consecutive_days(
     body = response.json()
     assert body["current_streak"] == 3
     assert body["longest_streak"] == 3
+
+
+def test_streaks_use_completed_at(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    """A done task's streak day must follow completed_at, not a later
+    updated_at from an unrelated edit."""
+    today = NOW
+    metrics_repo.user_tasks = [
+        _task(status="done", completed_at=today, updated_at=today),
+        _task(
+            status="done",
+            completed_at=today - timedelta(days=1),
+            updated_at=today,  # edited today, but completed yesterday
+        ),
+    ]
+    response = client.get("/api/v1/metrics/streaks")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["current_streak"] == 2
+    assert body["longest_streak"] == 2
 
 
 def test_project_metrics_health(

@@ -165,6 +165,12 @@ class TaskService:
             await self._validate_assignee(
                 assignee_id=assignee_id, org_id=project.org_id
             )
+        completed_at: datetime | None | Unset = UNSET
+        if status is not None and status != task.status:
+            if status == "done":
+                completed_at = datetime.now(UTC)
+            elif task.status == "done":
+                completed_at = None
         updated = await self._task_repo.update(
             task,
             title=title,
@@ -175,6 +181,7 @@ class TaskService:
             assignee_id=assignee_id,
             due_date=due_date,
             github_pr_url=github_pr_url,
+            completed_at=completed_at,
         )
         if status == "done" and self._cache is not None and updated.assignee_id:
             await self._cache.delete_matching(str(updated.assignee_id))

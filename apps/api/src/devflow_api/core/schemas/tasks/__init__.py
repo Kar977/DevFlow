@@ -47,6 +47,7 @@ class TaskResponse(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    completed_at: datetime | None
     tracked_seconds: int = 0
 
     model_config = {"from_attributes": True}

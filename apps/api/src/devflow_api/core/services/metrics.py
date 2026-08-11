@@ -2,7 +2,9 @@
 
 Calculation rules follow ``docs/product/README.md`` § Productivity Metrics.
 A task is treated as "completed" when ``status == 'done'``; its completion time
-is approximated by ``updated_at`` (there is no dedicated completed_at column).
+is ``Task.completed_at`` (set once by ``TaskService.update_task`` on the
+``-> done`` transition), falling back to ``updated_at`` for rows written
+before that column existed.
 
 Cache
 -----
@@ -75,8 +77,14 @@ def _metric_value(value: float, prev_value: float) -> MetricValueResponse:
     return MetricValueResponse(value=value, prev_value=prev_value, delta_pct=delta_pct)
 
 
+def _completion_time(task: Task) -> datetime:
+    """Completion instant: the real column, falling back to updated_at for
+    rows written before completed_at existed (or set outside the service)."""
+    return _as_utc(task.completed_at or task.updated_at)
+
+
 def _completed_in(task: Task, start: datetime, end: datetime) -> bool:
-    return task.status == "done" and start <= _as_utc(task.updated_at) <= end
+    return task.status == "done" and start <= _completion_time(task) <= end
 
 
 def _week_start(moment: datetime) -> date:
@@ -225,7 +233,7 @@ class MetricsService:
             cursor += timedelta(days=7)
         for task in tasks:
             if _completed_in(task, start, end):
-                buckets[_week_start(task.updated_at)] += 1
+                buckets[_week_start(_completion_time(task))] += 1
         weekly = [
             WeeklyVelocityPointResponse(week_start=day, tasks_completed=count)
             for day, count in sorted(buckets.items())
@@ -395,7 +403,7 @@ class MetricsService:
     async def _compute_streaks(self, *, user_id: uuid.UUID) -> StreakResponse:
         tasks = await self._metrics_repo.get_tasks_for_user(user_id)
         done_days = sorted(
-            {_as_utc(t.updated_at).date() for t in tasks if t.status == "done"}
+            {_completion_time(t).date() for t in tasks if t.status == "done"}
         )
         if not done_days:
             return StreakResponse(current_streak=0, longest_streak=0)

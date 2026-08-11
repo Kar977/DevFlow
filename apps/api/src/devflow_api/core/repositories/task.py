@@ -121,6 +121,7 @@ class TaskRepository:
         assignee_id: uuid.UUID | None | Unset = UNSET,
         due_date: datetime | None | Unset = UNSET,
         github_pr_url: str | None | Unset = UNSET,
+        completed_at: datetime | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
@@ -128,6 +129,8 @@ class TaskRepository:
             task.description = description
         if status is not None:
             task.status = status
+        if not isinstance(completed_at, Unset):
+            task.completed_at = completed_at
         if priority is not None:
             task.priority = priority
         if not isinstance(estimate_minutes, Unset):

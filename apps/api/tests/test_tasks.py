@@ -149,6 +149,7 @@ class FakeTaskRepository:
         assignee_id: uuid.UUID | None | Unset = UNSET,
         due_date: datetime | None | Unset = UNSET,
         github_pr_url: str | None | Unset = UNSET,
+        completed_at: datetime | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
@@ -156,6 +157,8 @@ class FakeTaskRepository:
             task.description = description
         if status is not None:
             task.status = status
+        if not isinstance(completed_at, Unset):
+            task.completed_at = completed_at
         if priority is not None:
             task.priority = priority
         if not isinstance(estimate_minutes, Unset):
@@ -494,6 +497,70 @@ def test_update_task_status_returns_200(
     response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "in_progress"})
     assert response.status_code == 200
     assert response.json()["status"] == "in_progress"
+
+
+def test_created_task_has_null_completed_at(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    response = client.get(f"/api/v1/tasks/{task.id}")
+    assert response.json()["completed_at"] is None
+
+
+def test_update_task_to_done_sets_completed_at(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+    assert response.status_code == 200
+    assert response.json()["completed_at"] is not None
+
+
+def test_update_task_out_of_done_clears_completed_at(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "in_progress"})
+    assert response.status_code == 200
+    assert response.json()["completed_at"] is None
+
+
+def test_update_task_repeated_done_keeps_original_completed_at(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    first = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+    first_completed_at = first.json()["completed_at"]
+    second = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+    assert second.status_code == 200
+    assert second.json()["completed_at"] == first_completed_at
+
+
+def test_update_task_title_only_leaves_completed_at_unchanged(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    done = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+    completed_at = done.json()["completed_at"]
+    renamed = client.patch(f"/api/v1/tasks/{task.id}", json={"title": "Renamed"})
+    assert renamed.status_code == 200
+    assert renamed.json()["completed_at"] == completed_at
 
 
 def test_update_task_invalid_status_returns_422(
