@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/shared/ui";
+import { isConflictError } from "@/shared/api/errorMessage";
 import { useTimerStore } from "@/shared/store/timerStore";
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 import { useTimerMutation } from "@/features/tasks/hooks/useTimerMutation";
@@ -12,7 +14,7 @@ function formatElapsed(ms: number) {
 export function TimerButton({ task }: { task: Task }) {
   const { activeSession } = useTimerStore();
   const isActiveTask = activeSession?.taskId === task.id;
-  const { start, stop, isStarting, isStopping } = useTimerMutation(task);
+  const { start, stop, switchTo, isStarting, isStopping } = useTimerMutation(task);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -30,8 +32,31 @@ export function TimerButton({ task }: { task: Task }) {
     );
   }
 
+  function handleStart() {
+    start(undefined, {
+      onError: (error) => {
+        if (!isConflictError(error)) return;
+        // The 409 tells us a session is active but not whose — read the
+        // local store, which useTimerSync keeps in sync with the server's
+        // active session (see that hook for why it's usually already correct
+        // by the time this fires).
+        const blocking = useTimerStore.getState().activeSession;
+        if (!blocking) {
+          toast.error("Masz już uruchomiony timer na innym zadaniu.");
+          return;
+        }
+        toast.error(`Timer już działa: "${blocking.taskTitle}"`, {
+          action: {
+            label: "Zatrzymaj i przełącz",
+            onClick: () => void switchTo(blocking.taskId),
+          },
+        });
+      },
+    });
+  }
+
   return (
-    <Button size="sm" variant="outline" onClick={() => start()} disabled={isStarting || !!activeSession}>
+    <Button size="sm" variant="outline" onClick={handleStart} disabled={isStarting}>
       Start
     </Button>
   );

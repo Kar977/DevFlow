@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from devflow_api.core.models.task import Task
 from devflow_api.core.models.work_session import WorkSession
 
 
@@ -26,12 +27,42 @@ class WorkSessionRepository:
         return session
 
     async def get_active_for_user(self, user_id: uuid.UUID) -> WorkSession | None:
-        stmt = select(WorkSession).where(
-            WorkSession.user_id == user_id,
-            WorkSession.ended_at.is_(None),
+        # `.limit(1)` + `.first()` rather than `scalar_one_or_none()`: a partial
+        # unique index enforces at most one open session per user, but this
+        # stays defensive against duplicates from data created before that
+        # index existed, or from any future relaxation of the constraint.
+        stmt = (
+            select(WorkSession)
+            .where(
+                WorkSession.user_id == user_id,
+                WorkSession.ended_at.is_(None),
+            )
+            .order_by(WorkSession.started_at.desc())
+            .limit(1)
         )
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
+
+    async def get_active_with_task(
+        self, user_id: uuid.UUID
+    ) -> tuple[WorkSession, str] | None:
+        """Active session for the user, joined with its task's title."""
+        stmt = (
+            select(WorkSession, Task.title)
+            .join(Task, Task.id == WorkSession.task_id)
+            .where(
+                WorkSession.user_id == user_id,
+                WorkSession.ended_at.is_(None),
+            )
+            .order_by(WorkSession.started_at.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        row = result.first()
+        if row is None:
+            return None
+        session, title = row
+        return session, title
 
     async def get_by_id(self, session_id: uuid.UUID) -> WorkSession | None:
         return await self._session.get(WorkSession, session_id)

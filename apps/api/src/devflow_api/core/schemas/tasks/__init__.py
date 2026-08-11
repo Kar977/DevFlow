@@ -73,3 +73,14 @@ class WorkSessionListResponse(BaseModel):
     """Not paginated — `meta` is omitted per the documented envelope contract."""
 
     data: list[WorkSessionResponse]
+
+
+class ActiveSessionResponse(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    task_title: str
+    started_at: datetime
+
+
+class ActiveSessionEnvelope(BaseModel):
+    data: ActiveSessionResponse | None

@@ -196,6 +196,10 @@ class TaskService:
                 code="session_active",
                 message="You already have an active work session.",
                 status_code=status.HTTP_409_CONFLICT,
+                details={
+                    "active_task_id": str(active.task_id),
+                    "active_session_id": str(active.id),
+                },
             )
         return await self._work_session_repo.create(
             task_id=task_id, user_id=user_id, started_at=datetime.now(UTC)
@@ -229,6 +233,17 @@ class TaskService:
     ) -> list[WorkSession]:
         await self._get_accessible_task(task_id=task_id, user_id=user_id)
         return await self._work_session_repo.list_for_task(task_id)
+
+    async def get_active_session(
+        self, *, user_id: uuid.UUID
+    ) -> tuple[WorkSession, str] | None:
+        """The caller's active session, if any, with its task's title.
+
+        No project-access check: an active session belongs to the caller by
+        construction (created via `start_session`, which already enforced
+        access at the time it was opened).
+        """
+        return await self._work_session_repo.get_active_with_task(user_id)
 
 
 def get_task_service(

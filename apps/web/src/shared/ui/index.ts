@@ -37,3 +37,4 @@ export {
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 export { Avatar, AvatarFallback, AvatarImage } from "./avatar";
+export { Toaster } from "sonner";

@@ -173,8 +173,9 @@ class FakeTaskRepository:
 
 
 class FakeWorkSessionRepository:
-    def __init__(self) -> None:
+    def __init__(self, task_repo: FakeTaskRepository) -> None:
         self._sessions: dict[uuid.UUID, WorkSession] = {}
+        self._task_repo = task_repo
 
     async def create(
         self, *, task_id: uuid.UUID, user_id: uuid.UUID, started_at: datetime
@@ -192,14 +193,26 @@ class FakeWorkSessionRepository:
         return session
 
     async def get_active_for_user(self, user_id: uuid.UUID) -> WorkSession | None:
-        return next(
-            (
-                s
-                for s in self._sessions.values()
-                if s.user_id == user_id and s.ended_at is None
-            ),
-            None,
-        )
+        # Mirrors the real repo's `ORDER BY started_at DESC LIMIT 1`: even if
+        # duplicate open sessions exist (pre-index data, a race), this must
+        # return the most recent one rather than raising or picking arbitrarily.
+        open_sessions = [
+            s
+            for s in self._sessions.values()
+            if s.user_id == user_id and s.ended_at is None
+        ]
+        if not open_sessions:
+            return None
+        return max(open_sessions, key=lambda s: s.started_at)
+
+    async def get_active_with_task(
+        self, user_id: uuid.UUID
+    ) -> tuple[WorkSession, str] | None:
+        active = await self.get_active_for_user(user_id)
+        if active is None:
+            return None
+        task = await self._task_repo.get_by_id(active.task_id)
+        return active, task.title if task is not None else ""
 
     async def get_by_id(self, session_id: uuid.UUID) -> WorkSession | None:
         return self._sessions.get(session_id)
@@ -302,8 +315,8 @@ def task_repo() -> FakeTaskRepository:
 
 
 @pytest.fixture()
-def session_repo() -> FakeWorkSessionRepository:
-    return FakeWorkSessionRepository()
+def session_repo(task_repo: FakeTaskRepository) -> FakeWorkSessionRepository:
+    return FakeWorkSessionRepository(task_repo)
 
 
 @pytest.fixture()
@@ -642,6 +655,31 @@ def test_start_session_when_active_returns_409(
     assert response.status_code == 409
 
 
+def test_start_session_when_active_reports_blocking_task_in_details(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """The 409 must name the task with the active session, so the UI can offer
+    a "stop and switch" action instead of a bare, unexplained failure."""
+    active_task = _make_task(
+        service, project_id=project_id, user_id=user_id, title="Active task"
+    )
+    other_task = _make_task(
+        service, project_id=project_id, user_id=user_id, title="Other task"
+    )
+    active_session = session_repo.seed_active(
+        task_id=active_task.id, user_id=user_id, started_at=datetime.now(UTC)
+    )
+    response = client.post(f"/api/v1/tasks/{other_task.id}/start")
+    assert response.status_code == 409
+    details = response.json()["error"]["details"]
+    assert details["active_task_id"] == str(active_task.id)
+    assert details["active_session_id"] == str(active_session.id)
+
+
 def test_stop_session_computes_duration(
     client: TestClient,
     service: TaskService,
@@ -708,6 +746,61 @@ def test_list_sessions_returns_200(
     response = client.get(f"/api/v1/tasks/{task.id}/sessions")
     assert response.status_code == 200
     assert len(response.json()["data"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests — active session lookup
+# ---------------------------------------------------------------------------
+
+
+def test_get_active_session_returns_null_when_none(client: TestClient) -> None:
+    response = client.get("/api/v1/tasks/sessions/active")
+    assert response.status_code == 200
+    assert response.json()["data"] is None
+
+
+def test_get_active_session_returns_session_with_task_title(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(
+        service, project_id=project_id, user_id=user_id, title="Fix the bug"
+    )
+    started_at = datetime.now(UTC) - timedelta(minutes=5)
+    session_repo.seed_active(task_id=task.id, user_id=user_id, started_at=started_at)
+
+    response = client.get("/api/v1/tasks/sessions/active")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["task_id"] == str(task.id)
+    assert data["task_title"] == "Fix the bug"
+
+
+def test_get_active_for_user_survives_duplicate_open_sessions() -> None:
+    """A partial unique index now prevents two open sessions per user at the
+    DB level, but the repo query must stay defensive: `scalar_one_or_none()`
+    would raise `MultipleResultsFound` on stale/pre-index duplicate rows and
+    permanently 500 the timer for that user. It must return one row instead."""
+    task_repo = FakeTaskRepository()
+    repo = FakeWorkSessionRepository(task_repo)
+    user_id = uuid.uuid4()
+    repo.seed_active(
+        task_id=uuid.uuid4(),
+        user_id=user_id,
+        started_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    newer = repo.seed_active(
+        task_id=uuid.uuid4(), user_id=user_id, started_at=datetime.now(UTC)
+    )
+
+    active = asyncio.run(repo.get_active_for_user(user_id))
+
+    assert active is not None
+    assert active.id == newer.id
 
 
 # ---------------------------------------------------------------------------
