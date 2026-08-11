@@ -122,3 +122,41 @@ class PRTrendsResponse(BaseModel):
     period_from: datetime
     period_to: datetime
     weekly: list[PRTrendPointResponse]
+
+
+class PRBottleneckItemResponse(BaseModel):
+    """One PR flagged as a bottleneck, identified well enough to act on
+    without a second lookup (repo/owner is embedded in ``html_url``)."""
+
+    number: int
+    title: str
+    author_login: str
+    html_url: str
+
+
+class StalePRBottleneckResponse(PRBottleneckItemResponse):
+    age_days: float
+
+
+class SlowReviewBottleneckResponse(PRBottleneckItemResponse):
+    wait_hours: float
+
+
+class PRFlowBottlenecksResponse(BaseModel):
+    stale_open: list[StalePRBottleneckResponse]
+    slowest_first_review: list[SlowReviewBottleneckResponse]
+
+
+class PRFlowReportResponse(BaseModel):
+    """Payload shape for the ``pr_flow_weekly`` report type — the 5 PR-flow
+    KPIs computed over an explicit period, plus the PRs actually driving
+    them (audit gap #9: a weekly PR-flow report with named bottlenecks)."""
+
+    period_from: datetime
+    period_to: datetime
+    stale_pr_count: int
+    time_to_first_review_h: float | None
+    review_velocity_h: float | None
+    throughput: int
+    review_ratio: float | None
+    bottlenecks: PRFlowBottlenecksResponse

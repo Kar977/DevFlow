@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from devflow_api.core.schemas.pagination import PageMeta
 
-_TYPE_PATTERN = "^(weekly_summary|project_status|productivity_overview)$"
+_TYPE_PATTERN = "^(weekly_summary|project_status|productivity_overview|pr_flow_weekly)$"
 _FORMAT_PATTERN = "^(json)$"
 
 
@@ -18,6 +18,7 @@ class CreateReportRequest(BaseModel):
     date_from: datetime | None = None
     date_to: datetime | None = None
     project_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None
 
 
 class ReportResponse(BaseModel):
@@ -25,6 +26,7 @@ class ReportResponse(BaseModel):
     type: str
     format: str
     status: str
+    organization_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
     error_message: str | None = None
     generated_at: datetime | None = None

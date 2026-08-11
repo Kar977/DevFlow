@@ -19,6 +19,11 @@ class Report(UUIDPrimaryKeyMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Only set for org-scoped report types (e.g. pr_flow_weekly); null for the
+    # user-scoped productivity reports.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     format: Mapped[str] = mapped_column(String(50), nullable=False, default="json")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")

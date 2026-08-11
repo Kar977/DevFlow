@@ -39,4 +39,11 @@ describe("ReportsList", () => {
     render(wrapper(<ReportsList reports={[]} />));
     expect(screen.getByText("Brak raportów.")).toBeInTheDocument();
   });
+
+  it("shows the Polish label for a pr_flow_weekly report", () => {
+    render(
+      wrapper(<ReportsList reports={[makeReport({ type: "pr_flow_weekly" })]} />)
+    );
+    expect(screen.getByText("Tygodniowy PR-flow")).toBeInTheDocument();
+  });
 });

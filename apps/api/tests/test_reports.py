@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
+from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.models.report import Report
 from devflow_api.core.models.task import Task
 from devflow_api.core.models.work_session import WorkSession
@@ -18,12 +19,14 @@ from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.metrics import MetricsService
+from devflow_api.core.services.pr_metrics import PRMetricsService
 from devflow_api.core.services.report import (
     ReportService,
     _generate_payload,
     get_report_generator,
     get_report_service,
 )
+from devflow_api.core.services.report_export import _pdf_text, render_csv, render_pdf
 from devflow_api.main import create_app
 
 NOW = datetime.now(UTC)
@@ -44,10 +47,12 @@ class FakeReportRepository:
         user_id: uuid.UUID,
         report_type: str,
         fmt: str,
+        organization_id: uuid.UUID | None = None,
     ) -> Report:
         report = Report(
             id=uuid.uuid4(),
             user_id=user_id,
+            organization_id=organization_id,
             type=report_type,
             format=fmt,
             status="pending",
@@ -168,6 +173,48 @@ class FakeOrgRepository:
             role="member",
             joined_at=datetime.now(UTC),
         )
+
+
+# ---------------------------------------------------------------------------
+# Fake PR repo (for pr_flow_weekly payload tests)
+# ---------------------------------------------------------------------------
+
+
+def _pr(
+    *,
+    title: str = "PR",
+    state: str = "open",
+    created_offset_days: int = 0,
+    merged_at: datetime | None = None,
+    first_review_at: datetime | None = None,
+) -> PullRequest:
+    now = datetime.now(UTC)
+    created = now - timedelta(days=created_offset_days)
+    return PullRequest(
+        id=uuid.uuid4(),
+        repository_id=uuid.uuid4(),
+        github_pr_id=uuid.uuid4().int % 100000,
+        number=1,
+        title=title,
+        author_login="dev",
+        state=state,
+        created_at_github=created,
+        merged_at=merged_at,
+        closed_at=None,
+        first_review_at=first_review_at,
+        html_url="https://github.com/owner/repo/pull/1",
+        last_synced_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+class FakePRRepositoryForReport:
+    def __init__(self, prs: list[PullRequest]) -> None:
+        self._prs = prs
+
+    async def list_for_org(self, org_id: uuid.UUID, **_: object) -> list[PullRequest]:
+        return self._prs
 
 
 # ---------------------------------------------------------------------------
@@ -654,3 +701,184 @@ def test_create_project_status_as_member_returns_202(
             json={"type": "project_status", "project_id": str(project_id)},
         )
     assert response.status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# Tests — pr_flow_weekly synchronous authorisation (audit gap #9)
+# ---------------------------------------------------------------------------
+
+
+def test_create_pr_flow_weekly_without_organization_id_returns_422(
+    client: TestClient,
+) -> None:
+    response = client.post("/api/v1/reports", json={"type": "pr_flow_weekly"})
+    assert response.status_code == 422
+
+
+def test_create_pr_flow_weekly_non_member_returns_403(
+    user_id: uuid.UUID,
+    report_repo: FakeReportRepository,
+) -> None:
+    org_id = uuid.uuid4()
+    project_repo = FakeProjectRepository()
+    org_repo = FakeOrgRepository()  # user_id NOT seeded → no membership
+    service = _make_report_service_with_auth(report_repo, project_repo, org_repo)
+
+    app = create_app()
+    app.dependency_overrides[get_report_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    app.dependency_overrides[get_report_generator] = lambda: make_fake_generator(
+        report_repo
+    )
+    with TestClient(app) as c:
+        response = c.post(
+            "/api/v1/reports",
+            json={"type": "pr_flow_weekly", "organization_id": str(org_id)},
+        )
+    assert response.status_code == 403
+
+
+def test_create_pr_flow_weekly_as_member_returns_202(
+    user_id: uuid.UUID,
+    report_repo: FakeReportRepository,
+) -> None:
+    org_id = uuid.uuid4()
+    project_repo = FakeProjectRepository()
+    org_repo = FakeOrgRepository()
+    org_repo.seed(org_id, user_id)
+    service = _make_report_service_with_auth(report_repo, project_repo, org_repo)
+
+    app = create_app()
+    app.dependency_overrides[get_report_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    app.dependency_overrides[get_report_generator] = lambda: make_fake_generator(
+        report_repo
+    )
+    with TestClient(app) as c:
+        response = c.post(
+            "/api/v1/reports",
+            json={"type": "pr_flow_weekly", "organization_id": str(org_id)},
+        )
+    assert response.status_code == 202
+    assert response.json()["organization_id"] == str(org_id)
+
+
+# ---------------------------------------------------------------------------
+# Unit test — _generate_payload (pr_flow_weekly)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_payload_pr_flow_weekly_shape() -> None:
+    org_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    org_repo = FakeOrgRepository()
+    org_repo.seed(org_id, user_id)
+    pr_metrics_svc = PRMetricsService(
+        pr_repo=FakePRRepositoryForReport([_pr(state="open", created_offset_days=10)]),  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        conn_repo=None,  # type: ignore[arg-type]
+        user_repo=None,  # type: ignore[arg-type]
+    )
+    metrics_svc = MetricsService(
+        metrics_repo=FakeMetricsRepository(),  # type: ignore[arg-type]
+        project_repo=ProjectRepository.__new__(ProjectRepository),
+        org_repo=OrganizationRepository.__new__(OrganizationRepository),
+    )
+
+    payload = asyncio.run(
+        _generate_payload(
+            "pr_flow_weekly",
+            user_id=user_id,
+            date_from=None,
+            date_to=None,
+            project_id=None,
+            organization_id=org_id,
+            metrics=metrics_svc,
+            pr_metrics=pr_metrics_svc,
+        )
+    )
+
+    assert payload["stale_pr_count"] == 1
+    assert isinstance(payload["bottlenecks"]["stale_open"], list)
+    assert payload["bottlenecks"]["stale_open"][0]["number"] == 1
+
+
+def test_generate_payload_pr_flow_weekly_without_pr_metrics_raises() -> None:
+    metrics_svc = MetricsService(
+        metrics_repo=FakeMetricsRepository(),  # type: ignore[arg-type]
+        project_repo=ProjectRepository.__new__(ProjectRepository),
+        org_repo=OrganizationRepository.__new__(OrganizationRepository),
+    )
+    with pytest.raises(ValueError, match="pr_flow_weekly"):
+        asyncio.run(
+            _generate_payload(
+                "pr_flow_weekly",
+                user_id=uuid.uuid4(),
+                date_from=None,
+                date_to=None,
+                project_id=None,
+                organization_id=uuid.uuid4(),
+                metrics=metrics_svc,
+                pr_metrics=None,
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Export — list-of-dicts payloads and PDF non-latin1 handling
+# ---------------------------------------------------------------------------
+
+
+def _report_with_payload(payload: dict[str, Any]) -> Report:
+    return Report(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        type="pr_flow_weekly",
+        format="json",
+        status="ready",
+        payload=payload,
+        error_message=None,
+        generated_at=datetime.now(UTC),
+        created_at=NOW,
+    )
+
+
+def test_export_csv_renders_list_of_dicts_as_indexed_rows() -> None:
+    report = _report_with_payload(
+        {
+            "bottlenecks": {
+                "stale_open": [
+                    {"number": 42, "title": "Fix things"},
+                ]
+            }
+        }
+    )
+    csv_text = render_csv(report)
+    assert "bottlenecks.stale_open[0].number" in csv_text
+    assert "42" in csv_text
+    assert "bottlenecks.stale_open[0].title" in csv_text
+
+
+def test_export_csv_still_joins_scalar_lists() -> None:
+    report = _report_with_payload({"tags": ["a", "b", "c"]})
+    csv_text = render_csv(report)
+    assert "a, b, c" in csv_text
+
+
+def test_export_pdf_handles_non_latin1_characters() -> None:
+    report = _report_with_payload(
+        {"bottlenecks": {"stale_open": [{"title": "Poprawka ąćę — 🚀"}]}}
+    )
+    pdf_bytes = render_pdf(report)
+    assert pdf_bytes.startswith(b"%PDF")
+
+
+def test_export_pdf_truncates_overlong_values() -> None:
+    long_value = "x" * 200
+    result = _pdf_text(long_value)
+    assert len(result) == 90
+    assert result.endswith("...")

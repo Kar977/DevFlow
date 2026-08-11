@@ -8,6 +8,7 @@ const TYPE_LABELS: Record<Report["type"], string> = {
   weekly_summary: "Podsumowanie tygodniowe",
   project_status: "Status projektu",
   productivity_overview: "Przegląd produktywności",
+  pr_flow_weekly: "Tygodniowy PR-flow",
 };
 
 interface Props {
