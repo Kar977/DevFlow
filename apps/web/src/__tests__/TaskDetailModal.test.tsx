@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "./mocks/server";
 import { TaskDetailModal } from "@/features/tasks/components/TaskDetailModal";
+import { fromDueDateIso } from "@/features/tasks/lib/dueDate";
 import { useOrgStore } from "@/shared/store/orgStore";
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 
@@ -83,5 +84,26 @@ describe("TaskDetailModal", () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(capturedBody).toMatchObject({ assignee_id: null });
+  });
+
+  it("prefills the due date input from the task and sends null when cleared", async () => {
+    let capturedBody: { due_date?: string | null } = {};
+    server.use(
+      http.patch("*/tasks/task-1", async ({ request }) => {
+        capturedBody = (await request.json()) as { due_date?: string | null };
+        return HttpResponse.json({ ...baseTask, due_date: null });
+      })
+    );
+    const dueTask: Task = { ...baseTask, due_date: "2026-08-20T21:59:59.000Z" };
+
+    renderModal(dueTask, vi.fn());
+
+    const dueInput = screen.getByLabelText(/termin/i) as HTMLInputElement;
+    expect(dueInput.value).toBe(fromDueDateIso(dueTask.due_date as string));
+
+    fireEvent.change(dueInput, { target: { value: "" } });
+    await userEvent.click(screen.getByRole("button", { name: /zapisz/i }));
+
+    await waitFor(() => expect(capturedBody.due_date).toBeNull());
   });
 });

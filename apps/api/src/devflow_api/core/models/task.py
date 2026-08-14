@@ -2,12 +2,19 @@
 
 import uuid
 from datetime import datetime
+from typing import Final
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from devflow_api.core.database import Base
 from devflow_api.core.models.base import TimestampMixin, UUIDPrimaryKeyMixin
+
+# Statuses that mean a task can never be "overdue", regardless of due_date:
+# a done task is finished, a cancelled one was deliberately dropped. Shared by
+# TaskRepository (count/list overdue queries) and MetricsService (project
+# health) so the definition can't drift between the two call sites again.
+OVERDUE_EXCLUDED_STATUSES: Final[tuple[str, str]] = ("done", "cancelled")
 
 
 class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -35,4 +42,10 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     github_pr_url: Mapped[str | None] = mapped_column(String(1024))
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=False
+    )
+
+    __table_args__ = (
+        # Supports the org-wide "my overdue tasks" query (filter by
+        # assignee_id, sort by due_date) — see TaskRepository.list_overdue_for_user.
+        Index("ix_tasks_assignee_id_due_date", "assignee_id", "due_date"),
     )

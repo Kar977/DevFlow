@@ -18,6 +18,8 @@ describe("TaskFilters", () => {
         assigneeId=""
         onAssigneeChange={onAssigneeChange}
         members={members}
+        overdueOnly={false}
+        onOverdueOnlyChange={vi.fn()}
       />
     );
 
@@ -37,6 +39,8 @@ describe("TaskFilters", () => {
         assigneeId="user-1"
         onAssigneeChange={onAssigneeChange}
         members={members}
+        overdueOnly={false}
+        onOverdueOnlyChange={vi.fn()}
       />
     );
 
@@ -45,5 +49,24 @@ describe("TaskFilters", () => {
     await userEvent.click(option);
 
     expect(onAssigneeChange).toHaveBeenCalledWith("");
+  });
+
+  it("calls onOverdueOnlyChange when the checkbox is toggled", async () => {
+    const onOverdueOnlyChange = vi.fn();
+    render(
+      <TaskFilters
+        status="all"
+        onStatusChange={vi.fn()}
+        assigneeId=""
+        onAssigneeChange={vi.fn()}
+        members={members}
+        overdueOnly={false}
+        onOverdueOnlyChange={onOverdueOnlyChange}
+      />
+    );
+
+    await userEvent.click(screen.getByLabelText("Tylko przeterminowane"));
+
+    expect(onOverdueOnlyChange).toHaveBeenCalledWith(true);
   });
 });

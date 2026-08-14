@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from devflow_api.core.cache import InMemoryCache
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
-from devflow_api.core.models.task import Task
+from devflow_api.core.models.task import OVERDUE_EXCLUDED_STATUSES, Task
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.task import TaskService, get_task_service
@@ -69,8 +69,9 @@ class FakeProjectRepository:
 
 
 class FakeTaskRepository:
-    def __init__(self) -> None:
+    def __init__(self, project_repo: FakeProjectRepository) -> None:
         self._tasks: dict[uuid.UUID, Task] = {}
+        self._project_repo = project_repo
 
     async def create(
         self,
@@ -135,6 +136,42 @@ class FakeTaskRepository:
             items = [t for t in items if t.status == status]
         if assignee_id is not None:
             items = [t for t in items if t.assignee_id == assignee_id]
+        return len(items)
+
+    async def _overdue_for_user(
+        self, *, user_id: uuid.UUID, org_id: uuid.UUID, now: datetime
+    ) -> list[Task]:
+        items = []
+        for t in self._tasks.values():
+            if t.assignee_id != user_id:
+                continue
+            if t.due_date is None or t.due_date >= now:
+                continue
+            if t.status in OVERDUE_EXCLUDED_STATUSES:
+                continue
+            project = await self._project_repo.get_by_id(t.project_id)
+            if project is None or project.org_id != org_id:
+                continue
+            items.append(t)
+        items.sort(key=lambda t: t.due_date)  # type: ignore[arg-type,return-value]
+        return items
+
+    async def list_overdue_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        org_id: uuid.UUID,
+        now: datetime,
+        limit: int,
+        offset: int,
+    ) -> list[Task]:
+        items = await self._overdue_for_user(user_id=user_id, org_id=org_id, now=now)
+        return items[offset : offset + limit]
+
+    async def count_overdue_for_user(
+        self, *, user_id: uuid.UUID, org_id: uuid.UUID, now: datetime
+    ) -> int:
+        items = await self._overdue_for_user(user_id=user_id, org_id=org_id, now=now)
         return len(items)
 
     async def update(
@@ -313,8 +350,8 @@ def project_repo(org_id: uuid.UUID, project_id: uuid.UUID) -> FakeProjectReposit
 
 
 @pytest.fixture()
-def task_repo() -> FakeTaskRepository:
-    return FakeTaskRepository()
+def task_repo(project_repo: FakeProjectRepository) -> FakeTaskRepository:
+    return FakeTaskRepository(project_repo)
 
 
 @pytest.fixture()
@@ -463,6 +500,286 @@ def test_list_tasks_returns_accumulated_tracked_seconds(
     items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["tracked_seconds"] == 900
+
+
+# ---------------------------------------------------------------------------
+# Tests — overdue
+# ---------------------------------------------------------------------------
+
+
+def _make_overdue(
+    service: TaskService,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    assignee_id: uuid.UUID,
+    due_date: datetime,
+    title: str = "Overdue task",
+) -> Task:
+    return asyncio.run(
+        service.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title=title,
+            assignee_id=assignee_id,
+            due_date=due_date,
+        )
+    )
+
+
+def test_list_overdue_tasks_returns_only_mine(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+    org_repo: FakeOrganizationRepository,
+) -> None:
+    other_user = uuid.uuid4()
+    org_repo.seed_member(org_id, other_user, role="member")
+    now = datetime.now(UTC)
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="mine, overdue",
+    )
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=other_user,
+        due_date=now - timedelta(days=1),
+        title="theirs, overdue",
+    )
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now + timedelta(days=1),
+        title="mine, future",
+    )
+    asyncio.run(
+        service.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="mine, no due date",
+            assignee_id=user_id,
+        )
+    )
+
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 1
+    assert len(body["data"]) == 1
+    assert body["data"][0]["title"] == "mine, overdue"
+
+
+def test_list_overdue_tasks_excludes_done_and_cancelled(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    now = datetime.now(UTC)
+    done_task = _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="done",
+    )
+    asyncio.run(
+        service.update_task(task_id=done_task.id, user_id=user_id, status="done")
+    )
+    cancelled_task = _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="cancelled",
+    )
+    asyncio.run(
+        service.update_task(
+            task_id=cancelled_task.id, user_id=user_id, status="cancelled"
+        )
+    )
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="still open",
+    )
+
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}")
+
+    assert response.status_code == 200
+    assert response.json()["meta"]["total"] == 1
+
+
+def test_list_overdue_tasks_orders_most_overdue_first(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    now = datetime.now(UTC)
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="1 day late",
+    )
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=3),
+        title="3 days late",
+    )
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=2),
+        title="2 days late",
+    )
+
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}")
+
+    titles = [item["title"] for item in response.json()["data"]]
+    assert titles == ["3 days late", "2 days late", "1 day late"]
+
+
+def test_list_overdue_tasks_respects_limit(
+    client: TestClient,
+    service: TaskService,
+    project_id: uuid.UUID,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    now = datetime.now(UTC)
+    for i in range(7):
+        _make_overdue(
+            service,
+            project_id=project_id,
+            user_id=user_id,
+            assignee_id=user_id,
+            due_date=now - timedelta(days=i + 1),
+            title=f"task {i}",
+        )
+
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}&limit=3")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 3
+    assert body["meta"]["total"] == 7
+
+
+def test_list_overdue_tasks_excludes_other_organizations(
+    client: TestClient,
+    service: TaskService,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    project_id: uuid.UUID,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    other_org_id = uuid.uuid4()
+    other_project_id = uuid.uuid4()
+    project_repo.seed_project(project_id=other_project_id, org_id=other_org_id)
+    org_repo.seed_member(other_org_id, user_id, role="owner")
+    now = datetime.now(UTC)
+    _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="in my org",
+    )
+    _make_overdue(
+        service,
+        project_id=other_project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+        title="in other org",
+    )
+
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 1
+    assert body["data"][0]["title"] == "in my org"
+
+
+def test_list_overdue_tasks_non_member_org_returns_403(client: TestClient) -> None:
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={uuid.uuid4()}")
+    assert response.status_code == 403
+
+
+def test_list_overdue_tasks_route_not_shadowed_by_task_id(
+    client: TestClient, org_id: uuid.UUID
+) -> None:
+    """Regression lock: `/overdue` must be declared above `/{task_id}` in
+    routes.py, or FastAPI tries to parse "overdue" as a task UUID and this
+    would 422 instead of reaching the handler."""
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}")
+    assert response.status_code == 200
+
+
+def test_list_overdue_tasks_missing_organization_id_returns_422(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/tasks/overdue")
+    assert response.status_code == 422
+
+
+def test_list_overdue_tasks_includes_tracked_seconds(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    now = datetime.now(UTC)
+    task = _make_overdue(
+        service,
+        project_id=project_id,
+        user_id=user_id,
+        assignee_id=user_id,
+        due_date=now - timedelta(days=1),
+    )
+    session_repo.seed_completed(
+        task_id=task.id,
+        user_id=user_id,
+        started_at=now - timedelta(hours=2),
+        duration_seconds=600,
+    )
+
+    response = client.get(f"/api/v1/tasks/overdue?organization_id={org_id}")
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["tracked_seconds"] == 600
 
 
 # ---------------------------------------------------------------------------
@@ -852,7 +1169,7 @@ def test_get_active_for_user_survives_duplicate_open_sessions() -> None:
     DB level, but the repo query must stay defensive: `scalar_one_or_none()`
     would raise `MultipleResultsFound` on stale/pre-index duplicate rows and
     permanently 500 the timer for that user. It must return one row instead."""
-    task_repo = FakeTaskRepository()
+    task_repo = FakeTaskRepository(FakeProjectRepository())
     repo = FakeWorkSessionRepository(task_repo)
     user_id = uuid.uuid4()
     repo.seed_active(

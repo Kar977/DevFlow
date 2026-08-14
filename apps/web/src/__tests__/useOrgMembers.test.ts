@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import React from "react";
 import { server } from "./mocks/server";
-import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
+import {
+  useOrgMembersQuery,
+  useUpdateMemberRole,
+} from "@/features/organizations/hooks/useOrgMembers";
 
 function wrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -43,5 +46,36 @@ describe("useOrgMembersQuery", () => {
       wrapper: wrapper(),
     });
     expect(result.current.fetchStatus).toBe("idle");
+  });
+});
+
+describe("useUpdateMemberRole", () => {
+  it("PATCHes the member's role and returns the updated member", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.patch("*/organizations/org-1/members/user-1", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          id: "mem-1",
+          org_id: "org-1",
+          user_id: "user-1",
+          role: "admin",
+          joined_at: "2024-01-01T00:00:00Z",
+          display_name: "Jan Kowalski",
+        });
+      })
+    );
+
+    const { result } = renderHook(() => useUpdateMemberRole("org-1"), {
+      wrapper: wrapper(),
+    });
+
+    let response: { role: string } | undefined;
+    await act(async () => {
+      response = await result.current.mutateAsync({ userId: "user-1", role: "admin" });
+    });
+
+    expect(capturedBody).toEqual({ role: "admin" });
+    expect(response?.role).toBe("admin");
   });
 });

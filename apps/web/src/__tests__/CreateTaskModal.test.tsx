@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "./mocks/server";
 import { CreateTaskModal } from "@/features/tasks/components/CreateTaskModal";
+import { fromDueDateIso } from "@/features/tasks/lib/dueDate";
 import { useOrgStore } from "@/shared/store/orgStore";
 
 beforeEach(() => {
@@ -111,5 +112,39 @@ describe("CreateTaskModal", () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(capturedBody).toMatchObject({ assignee_id: "user-42" });
+  });
+
+  it("includes a due_date in the create payload when a date is picked", async () => {
+    let capturedBody: { due_date?: string } = {};
+    server.use(
+      http.post("*/tasks", async ({ request }) => {
+        capturedBody = (await request.json()) as { due_date?: string };
+        return HttpResponse.json(
+          {
+            id: "t1",
+            title: "Fix bug",
+            status: "todo",
+            priority: "medium",
+            project_id: "p1",
+            created_by: "u1",
+            created_at: "2024-01-01",
+            updated_at: "2024-01-01",
+          },
+          { status: 201 }
+        );
+      })
+    );
+
+    const { onClose } = renderModal();
+
+    await userEvent.type(screen.getByLabelText(/tytuł/i), "Fix bug");
+    fireEvent.change(screen.getByLabelText(/termin/i), {
+      target: { value: "2026-08-20" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: /utwórz/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(capturedBody.due_date).toBeTruthy();
+    expect(fromDueDateIso(capturedBody.due_date as string)).toBe("2026-08-20");
   });
 });

@@ -1,6 +1,7 @@
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 import { useTaskTrackedSeconds } from "@/features/tasks/hooks/useTaskTrackedSeconds";
 import { formatTrackedTime } from "@/features/tasks/lib/trackedTime";
+import { formatDueDate, isOverdue } from "@/features/tasks/lib/dueDate";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { TimerButton } from "./TimerButton";
@@ -31,10 +32,13 @@ export function TaskCard({ task, onClick }: Props) {
   const { activeOrgId } = useOrgStore();
   const { data: members } = useOrgMembersQuery(activeOrgId);
   const assignee = members?.find((m) => m.user_id === task.assignee_id);
+  const overdue = isOverdue(task);
 
   return (
     <div
-      className="flex items-center justify-between rounded-lg border border-border bg-card p-4 hover:bg-accent/50 cursor-pointer transition-colors"
+      className={`flex items-center justify-between rounded-lg border border-border bg-card p-4 hover:bg-accent/50 cursor-pointer transition-colors ${
+        overdue ? "border-l-4 border-l-red-400" : ""
+      }`}
       onClick={onClick}
     >
       <div className="flex flex-col gap-1 min-w-0">
@@ -52,6 +56,15 @@ export function TaskCard({ task, onClick }: Props) {
           {trackedSeconds > 0 && (
             <span className="text-xs text-muted-foreground">
               ⏱ {formatTrackedTime(trackedSeconds)}
+            </span>
+          )}
+          {task.due_date && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                overdue ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              📅 {formatDueDate(task.due_date)}
             </span>
           )}
           {assignee && (

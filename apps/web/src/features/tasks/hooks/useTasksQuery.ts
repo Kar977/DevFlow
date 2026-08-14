@@ -30,6 +30,10 @@ export const taskQueryKeys = {
   all: ["tasks"] as const,
   list: (params: TasksParams) => [...taskQueryKeys.all, "list", params] as const,
   detail: (id: string) => [...taskQueryKeys.all, "detail", id] as const,
+  // Nested under `all` so every existing task mutation (create/update/delete,
+  // which all invalidate `taskQueryKeys.all`) refreshes the overdue banner
+  // for free — no extra invalidation wiring needed.
+  overdue: (orgId: string) => [...taskQueryKeys.all, "overdue", orgId] as const,
 };
 
 export function useTasksQuery(params: TasksParams) {

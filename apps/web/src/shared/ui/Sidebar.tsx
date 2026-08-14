@@ -5,7 +5,6 @@ import {
   FolderOpen,
   BarChart2,
   FileText,
-  Github,
   User,
   GitPullRequest,
   GitBranch,
@@ -25,7 +24,6 @@ const navItems = [
 ];
 
 const settingsItems = [
-  { to: "/settings/github", icon: Github, label: "GitHub" },
   { to: "/settings/profile", icon: User, label: "Profil" },
   { to: "/settings/organization", icon: Building2, label: "Organizacja" },
 ];

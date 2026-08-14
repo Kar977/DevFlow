@@ -16,6 +16,7 @@ from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.repositories.task import TaskRepository
 from devflow_api.core.repositories.work_session import WorkSessionRepository
+from devflow_api.core.services.org_access import require_member
 from devflow_api.core.unset import UNSET, Unset
 
 
@@ -141,6 +142,29 @@ class TaskService:
         )
         total = await self._task_repo.count_for_project(
             project_id, status=status, assignee_id=assignee_id
+        )
+        return [(task, tracked.get(task.id, 0)) for task in tasks], total
+
+    async def list_overdue_tasks(
+        self,
+        *,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        limit: int = 5,
+        offset: int = 0,
+    ) -> tuple[list[tuple[Task, int]], int]:
+        """The caller's own overdue tasks across every project in `org_id` —
+        the personal feed backing the dashboard "overdue" banner."""
+        await require_member(self._org_repo, org_id, user_id)
+        now = datetime.now(UTC)
+        tasks = await self._task_repo.list_overdue_for_user(
+            user_id=user_id, org_id=org_id, now=now, limit=limit, offset=offset
+        )
+        tracked = await self._work_session_repo.tracked_seconds_for_tasks(
+            [t.id for t in tasks]
+        )
+        total = await self._task_repo.count_overdue_for_user(
+            user_id=user_id, org_id=org_id, now=now
         )
         return [(task, tracked.get(task.id, 0)) for task in tasks], total
 

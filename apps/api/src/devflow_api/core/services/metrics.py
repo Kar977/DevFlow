@@ -27,7 +27,7 @@ from devflow_api.core.cache import CacheBackend, get_cache
 from devflow_api.core.config import get_settings
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
-from devflow_api.core.models.task import Task
+from devflow_api.core.models.task import OVERDUE_EXCLUDED_STATUSES, Task
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.repositories.metrics import MetricsRepository
 from devflow_api.core.repositories.organization import OrganizationRepository
@@ -466,7 +466,7 @@ class MetricsService:
             for t in tasks
             if t.due_date is not None
             and _as_utc(t.due_date) < now
-            and t.status != "done"
+            and t.status not in OVERDUE_EXCLUDED_STATUSES
         )
         overdue_rate = (overdue / total * 100) if total else 0.0
         if overdue_rate < 10:

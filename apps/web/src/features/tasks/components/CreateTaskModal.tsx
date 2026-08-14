@@ -19,6 +19,7 @@ import {
 import { useCreateTask } from "@/features/tasks/hooks/useTaskMutations";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { useOrgStore } from "@/shared/store/orgStore";
+import { toDueDateIso } from "@/features/tasks/lib/dueDate";
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Niski" },
@@ -39,6 +40,7 @@ const CreateTaskSchema = z.object({
     .positive("Podaj dodatnią liczbę minut")
     .optional(),
   assignee_id: z.string().optional(),
+  due_date: z.string().optional(),
 });
 type CreateTaskData = z.infer<typeof CreateTaskSchema>;
 
@@ -76,6 +78,7 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
         priority: data.priority,
         estimate_minutes: data.estimate_minutes,
         assignee_id: data.assignee_id,
+        due_date: data.due_date ? toDueDateIso(data.due_date) : undefined,
       },
       {
         onSuccess: () => {
@@ -151,6 +154,11 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
                 <p className="text-sm text-destructive">{errors.estimate_minutes.message}</p>
               )}
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="task-due-date">Termin</Label>
+            <Input id="task-due-date" type="date" {...register("due_date")} />
           </div>
 
           <div className="flex flex-col gap-1.5">

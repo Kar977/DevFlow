@@ -39,6 +39,10 @@ class InviteMemberRequest(BaseModel):
     role: str = Field(default="member", pattern="^(owner|admin|member)$")
 
 
+class UpdateMemberRoleRequest(BaseModel):
+    role: str = Field(pattern="^(owner|admin|member)$")
+
+
 class MemberResponse(BaseModel):
     id: uuid.UUID
     org_id: uuid.UUID

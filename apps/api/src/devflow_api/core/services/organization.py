@@ -13,6 +13,7 @@ from devflow_api.core.models.organization import Organization
 from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.user import UserRepository
 from devflow_api.core.schemas.organizations import MemberResponse
+from devflow_api.core.unset import UNSET, Unset
 
 
 def _slugify(name: str) -> str:
@@ -104,7 +105,7 @@ class OrganizationService:
         org_id: uuid.UUID,
         user_id: uuid.UUID,
         name: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
     ) -> Organization:
         org = await self.get_organization(org_id=org_id, user_id=user_id)
         member = await self._org_repo.get_member(org_id, user_id)
@@ -229,6 +230,62 @@ class OrganizationService:
                 status_code=status.HTTP_403_FORBIDDEN,
             )
         await self._org_repo.remove_member(target_member)
+
+    async def update_member_role(
+        self,
+        *,
+        org_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        target_user_id: uuid.UUID,
+        role: str,
+    ) -> MemberResponse:
+        await self.get_organization(org_id=org_id, user_id=actor_id)
+        actor_member = await self._org_repo.get_member(org_id, actor_id)
+        if not actor_member or actor_member.role not in ("owner", "admin"):
+            raise AppError(
+                code="forbidden",
+                message="Only owners and admins can change member roles.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        if role == "owner" and actor_member.role != "owner":
+            raise AppError(
+                code="forbidden",
+                message="Only owners can grant the owner role.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        target_member = await self._org_repo.get_member(org_id, target_user_id)
+        if not target_member:
+            raise AppError(
+                code="not_found",
+                message="Member not found in this organization.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        if target_member.role == "owner" and actor_member.role != "owner":
+            raise AppError(
+                code="forbidden",
+                message="Only owners can change another owner's role.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        if target_member.role == "owner" and role != "owner":
+            members = await self._org_repo.list_members(org_id)
+            owner_count = sum(1 for m in members if m.role == "owner")
+            if owner_count <= 1:
+                raise AppError(
+                    code="last_owner",
+                    message="An organization must keep at least one owner.",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+        updated = await self._org_repo.update_member_role(target_member, role=role)
+        user = await self._user_repo.get_by_id(updated.user_id)
+        display_name = (user.full_name or user.email) if user else str(updated.user_id)
+        return MemberResponse(
+            id=updated.id,
+            org_id=updated.org_id,
+            user_id=updated.user_id,
+            role=updated.role,
+            joined_at=updated.joined_at,
+            display_name=display_name,
+        )
 
 
 def get_organization_service(

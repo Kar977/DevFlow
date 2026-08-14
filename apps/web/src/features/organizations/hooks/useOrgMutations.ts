@@ -30,3 +30,20 @@ export function useCreateOrganization() {
     },
   });
 }
+
+interface UpdateOrganizationData {
+  name?: string;
+  description?: string | null;
+}
+
+export function useUpdateOrganization(orgId: string) {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: UpdateOrganizationData) =>
+      apiClient
+        .patch<OrganizationResponse>(`/organizations/${orgId}`, data)
+        .then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: orgQueryKeys.all }),
+  });
+}

@@ -49,3 +49,15 @@ export function useRemoveMember(orgId: string) {
       qc.invalidateQueries({ queryKey: membersQueryKey(orgId) }),
   });
 }
+
+export function useUpdateMemberRole(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
+      apiClient
+        .patch<MemberResponse>(`/organizations/${orgId}/members/${userId}`, { role })
+        .then((r) => r.data),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: membersQueryKey(orgId) }),
+  });
+}

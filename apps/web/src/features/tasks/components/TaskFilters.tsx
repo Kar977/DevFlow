@@ -1,4 +1,4 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Label } from "@/shared/ui";
 
 interface Member {
   user_id: string;
@@ -11,6 +11,8 @@ interface Props {
   assigneeId: string;
   onAssigneeChange: (assigneeId: string) => void;
   members: Member[];
+  overdueOnly: boolean;
+  onOverdueOnlyChange: (overdueOnly: boolean) => void;
 }
 
 const STATUS_OPTIONS = [
@@ -31,6 +33,8 @@ export function TaskFilters({
   assigneeId,
   onAssigneeChange,
   members,
+  overdueOnly,
+  onOverdueOnlyChange,
 }: Props) {
   return (
     <div className="flex items-center gap-4">
@@ -63,6 +67,19 @@ export function TaskFilters({
           ))}
         </SelectContent>
       </Select>
+
+      <div className="flex items-center gap-1.5">
+        <input
+          id="overdue-only"
+          type="checkbox"
+          className="h-4 w-4 rounded border-input"
+          checked={overdueOnly}
+          onChange={(e) => onOverdueOnlyChange(e.target.checked)}
+        />
+        <Label htmlFor="overdue-only" className="cursor-pointer font-normal">
+          Tylko przeterminowane
+        </Label>
+      </div>
     </div>
   );
 }
