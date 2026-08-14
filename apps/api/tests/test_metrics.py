@@ -469,6 +469,20 @@ def test_project_metrics_health(
     assert body["health"] in ("healthy", "at_risk", "critical")
 
 
+def test_project_metrics_exclude_cancelled_from_overdue(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    project_id: uuid.UUID,
+) -> None:
+    metrics_repo.project_tasks[project_id] = [
+        _task(status="cancelled", due_date=NOW - timedelta(days=1)),
+        _task(status="in_progress", due_date=NOW - timedelta(days=1)),
+    ]
+    response = client.get(f"/api/v1/metrics/projects/{project_id}")
+    assert response.status_code == 200
+    assert response.json()["overdue_tasks"] == 1
+
+
 def test_project_metrics_nonexistent_returns_404(client: TestClient) -> None:
     response = client.get(f"/api/v1/metrics/projects/{uuid.uuid4()}")
     assert response.status_code == 404

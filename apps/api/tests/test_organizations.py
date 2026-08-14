@@ -16,6 +16,7 @@ from devflow_api.core.services.organization import (
     OrganizationService,
     get_organization_service,
 )
+from devflow_api.core.unset import UNSET, Unset
 from devflow_api.main import create_app
 
 # ---------------------------------------------------------------------------
@@ -76,11 +77,11 @@ class FakeOrganizationRepository:
         org: Organization,
         *,
         name: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
     ) -> Organization:
         if name is not None:
             org.name = name
-        if description is not None:
+        if not isinstance(description, Unset):
             org.description = description
         return org
 
@@ -118,6 +119,12 @@ class FakeOrganizationRepository:
 
     async def remove_member(self, member: OrganizationMember) -> None:
         self._members.pop(member.id, None)
+
+    async def update_member_role(
+        self, member: OrganizationMember, *, role: str
+    ) -> OrganizationMember:
+        member.role = role
+        return member
 
 
 class FakeUserRepository:
@@ -312,6 +319,48 @@ def test_update_organization_returns_200(
     )
     assert response.status_code == 200
     assert response.json()["name"] == "Acme Updated"
+
+
+def test_update_organization_can_clear_description(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    import asyncio
+
+    svc = OrganizationService(org_repo=org_repo, user_repo=user_repo)  # type: ignore[arg-type]
+    org = asyncio.run(
+        svc.create_organization(
+            user_id=owner.id, name="Acme", description="Old description"
+        )
+    )
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}", json={"description": None}
+    )
+    assert response.status_code == 200
+    assert response.json()["description"] is None
+
+
+def test_update_organization_omitted_description_is_unchanged(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    import asyncio
+
+    svc = OrganizationService(org_repo=org_repo, user_repo=user_repo)  # type: ignore[arg-type]
+    org = asyncio.run(
+        svc.create_organization(
+            user_id=owner.id, name="Acme", description="Kept description"
+        )
+    )
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}", json={"name": "Acme Updated"}
+    )
+    assert response.status_code == 200
+    assert response.json()["description"] == "Kept description"
 
 
 # ---------------------------------------------------------------------------
@@ -573,3 +622,227 @@ def test_invite_owner_role_by_owner_returns_201(
     )
     assert response.status_code == 201
     assert response.json()["role"] == "owner"
+
+
+# ---------------------------------------------------------------------------
+# Tests — member role changes
+# ---------------------------------------------------------------------------
+
+
+def test_update_member_role_by_owner_returns_200(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(
+        org_repo.add_member(org_id=org.id, user_id=other_user.id, role="member")
+    )
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{other_user.id}",
+        json={"role": "admin"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["role"] == "admin"
+    assert body["display_name"] == other_user.full_name
+
+
+def test_update_member_role_admin_cannot_grant_owner_returns_403(
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(org_repo.add_member(org_id=org.id, user_id=other_user.id, role="admin"))
+    third_user = _make_user("third@example.com")
+    user_repo.seed(third_user)
+    asyncio.run(
+        org_repo.add_member(org_id=org.id, user_id=third_user.id, role="member")
+    )
+    service = OrganizationService(org_repo=org_repo, user_repo=user_repo)  # type: ignore[arg-type]
+
+    async def attempt() -> None:
+        await service.update_member_role(
+            org_id=org.id,
+            actor_id=other_user.id,
+            target_user_id=third_user.id,
+            role="owner",
+        )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(attempt())
+    assert exc_info.value.status_code == 403
+
+
+def test_update_member_role_owner_can_grant_owner_returns_200(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(
+        org_repo.add_member(org_id=org.id, user_id=other_user.id, role="member")
+    )
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{other_user.id}",
+        json={"role": "owner"},
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "owner"
+
+
+def test_update_member_role_plain_member_returns_403(
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(
+        org_repo.add_member(org_id=org.id, user_id=other_user.id, role="member")
+    )
+    service = OrganizationService(org_repo=org_repo, user_repo=user_repo)  # type: ignore[arg-type]
+
+    async def attempt() -> None:
+        await service.update_member_role(
+            org_id=org.id,
+            actor_id=other_user.id,
+            target_user_id=owner.id,
+            role="admin",
+        )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(attempt())
+    assert exc_info.value.status_code == 403
+
+
+def test_update_member_role_unknown_target_returns_404(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{uuid.uuid4()}",
+        json={"role": "admin"},
+    )
+    assert response.status_code == 404
+
+
+def test_update_member_role_admin_cannot_change_owner_returns_403(
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(org_repo.add_member(org_id=org.id, user_id=other_user.id, role="admin"))
+    service = OrganizationService(org_repo=org_repo, user_repo=user_repo)  # type: ignore[arg-type]
+
+    async def attempt() -> None:
+        await service.update_member_role(
+            org_id=org.id,
+            actor_id=other_user.id,
+            target_user_id=owner.id,
+            role="admin",
+        )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(attempt())
+    assert exc_info.value.status_code == 403
+
+
+def test_update_member_role_demoting_last_owner_returns_409(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{owner.id}",
+        json={"role": "admin"},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "last_owner"
+
+
+def test_update_member_role_owner_self_demote_with_second_owner_returns_200(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(org_repo.add_member(org_id=org.id, user_id=other_user.id, role="owner"))
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{owner.id}",
+        json={"role": "admin"},
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
+
+
+def test_update_member_role_invalid_role_returns_422(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(
+        org_repo.add_member(org_id=org.id, user_id=other_user.id, role="member")
+    )
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{other_user.id}",
+        json={"role": "superadmin"},
+    )
+    assert response.status_code == 422
+
+
+def test_update_member_role_same_role_is_idempotent_200(
+    client: TestClient,
+    org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    owner: User,
+    other_user: User,
+) -> None:
+    import asyncio
+
+    org = asyncio.run(_create_org(org_repo, user_repo, owner.id))
+    asyncio.run(
+        org_repo.add_member(org_id=org.id, user_id=other_user.id, role="member")
+    )
+    response = client.patch(
+        f"/api/v1/organizations/{org.id}/members/{other_user.id}",
+        json={"role": "member"},
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "member"

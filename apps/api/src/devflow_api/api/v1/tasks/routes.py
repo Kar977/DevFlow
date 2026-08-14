@@ -79,6 +79,39 @@ async def list_tasks(
 
 
 @router.get(
+    "/overdue",
+    response_model=TaskListResponse,
+    summary="List the caller's overdue tasks across an organization",
+)
+async def list_overdue_tasks(
+    organization_id: uuid.UUID,
+    limit: int = Query(default=5, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: TaskService = Depends(get_task_service),
+) -> TaskListResponse:
+    tasks, total = await service.list_overdue_tasks(
+        org_id=organization_id,
+        user_id=subject.user_id,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        TaskResponse.model_validate(t).model_copy(update={"tracked_seconds": secs})
+        for t, secs in tasks
+    ]
+    return TaskListResponse(
+        data=items, meta=PageMeta(total=total, limit=limit, offset=offset)
+    )
+
+
+# NOTE: this route MUST stay declared above `/{task_id}` below. FastAPI
+# matches path operations in declaration order, and a single-segment static
+# path like `/overdue` would otherwise be swallowed by `/{task_id}` — the
+# request would try to parse "overdue" as a UUID and 422 instead of running
+# this handler. (Contrast with `/sessions/active` further down, which is
+# safe because it has two segments.)
+@router.get(
     "/{task_id}",
     response_model=TaskResponse,
     summary="Get a single task",

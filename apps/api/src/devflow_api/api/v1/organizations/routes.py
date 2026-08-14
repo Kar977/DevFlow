@@ -11,6 +11,7 @@ from devflow_api.core.schemas.organizations import (
     MemberResponse,
     OrganizationListResponse,
     OrganizationResponse,
+    UpdateMemberRoleRequest,
     UpdateOrganizationRequest,
 )
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
@@ -18,6 +19,7 @@ from devflow_api.core.services.organization import (
     OrganizationService,
     get_organization_service,
 )
+from devflow_api.core.unset import UNSET
 
 router = APIRouter()
 
@@ -80,11 +82,12 @@ async def update_organization(
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: OrganizationService = Depends(get_organization_service),
 ) -> OrganizationResponse:
+    fields = body.model_fields_set
     org = await service.update_organization(
         org_id=org_id,
         user_id=subject.user_id,
         name=body.name,
-        description=body.description,
+        description=body.description if "description" in fields else UNSET,
     )
     return OrganizationResponse.model_validate(org)
 
@@ -151,4 +154,24 @@ async def remove_member(
         org_id=org_id,
         remover_id=subject.user_id,
         target_user_id=user_id,
+    )
+
+
+@router.patch(
+    "/{org_id}/members/{user_id}",
+    response_model=MemberResponse,
+    summary="Change a member's role",
+)
+async def update_member_role(
+    org_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: UpdateMemberRoleRequest,
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: OrganizationService = Depends(get_organization_service),
+) -> MemberResponse:
+    return await service.update_member_role(
+        org_id=org_id,
+        actor_id=subject.user_id,
+        target_user_id=user_id,
+        role=body.role,
     )

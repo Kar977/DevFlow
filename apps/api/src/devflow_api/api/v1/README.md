@@ -34,6 +34,7 @@ Version 1 of the public HTTP API contract. All routes are mounted under `/api/v1
 | POST | `/api/v1/organizations/{org_id}/members` | Invite member | Bearer (admin+) |
 | GET | `/api/v1/organizations/{org_id}/members` | List members | Bearer |
 | DELETE | `/api/v1/organizations/{org_id}/members/{user_id}` | Remove member | Bearer (admin+) |
+| PATCH | `/api/v1/organizations/{org_id}/members/{user_id}` | Change member role | Bearer (admin+) |
 
 ### Projects (router dir: `api/v1/projects/`)
 
@@ -51,6 +52,7 @@ Version 1 of the public HTTP API contract. All routes are mounted under `/api/v1
 |---|---|---|---|
 | POST | `/api/v1/tasks` | Create task | Bearer |
 | GET | `/api/v1/tasks` | List tasks | Bearer |
+| GET | `/api/v1/tasks/overdue` | Caller's overdue tasks across an org | Bearer |
 | GET | `/api/v1/tasks/{task_id}` | Task details | Bearer |
 | PATCH | `/api/v1/tasks/{task_id}` | Update task | Bearer |
 | DELETE | `/api/v1/tasks/{task_id}` | Delete task | Bearer |

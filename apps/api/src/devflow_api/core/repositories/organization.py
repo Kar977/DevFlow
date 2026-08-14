@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from devflow_api.core.models.organization import Organization
 from devflow_api.core.models.organization_member import OrganizationMember
+from devflow_api.core.unset import UNSET, Unset
 
 
 class OrganizationRepository:
@@ -60,13 +61,18 @@ class OrganizationRepository:
         org: Organization,
         *,
         name: str | None = None,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
     ) -> Organization:
         if name is not None:
             org.name = name
-        if description is not None:
+        if not isinstance(description, Unset):
             org.description = description
         await self._session.flush()
+        # `updated_at` is set by an onupdate=func.now() server-side default;
+        # without a refresh the attribute stays expired and a later sync
+        # attribute read (e.g. OrganizationResponse.model_validate) raises
+        # MissingGreenlet when it tries to lazily reload it.
+        await self._session.refresh(org)
         return org
 
     async def soft_delete(self, org: Organization, deleted_at: datetime) -> None:
@@ -108,3 +114,10 @@ class OrganizationRepository:
     async def remove_member(self, member: OrganizationMember) -> None:
         await self._session.delete(member)
         await self._session.flush()
+
+    async def update_member_role(
+        self, member: OrganizationMember, *, role: str
+    ) -> OrganizationMember:
+        member.role = role
+        await self._session.flush()
+        return member
