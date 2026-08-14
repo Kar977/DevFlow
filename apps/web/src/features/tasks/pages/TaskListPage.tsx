@@ -8,6 +8,7 @@ import { TaskFilters } from "@/features/tasks/components/TaskFilters";
 import { TaskDetailModal } from "@/features/tasks/components/TaskDetailModal";
 import { CreateTaskModal } from "@/features/tasks/components/CreateTaskModal";
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
+import { isOverdue } from "@/features/tasks/lib/dueDate";
 import {
   Button,
   Select,
@@ -21,6 +22,7 @@ export function TaskListPage() {
   const { activeOrgId } = useOrgStore();
   const [statusFilter, setStatusFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -91,18 +93,31 @@ export function TaskListPage() {
         assigneeId={assigneeFilter}
         onAssigneeChange={setAssigneeFilter}
         members={members ?? []}
+        overdueOnly={overdueOnly}
+        onOverdueOnlyChange={setOverdueOnly}
       />
 
       {isLoading && <p className="text-muted-foreground">Ładowanie...</p>}
 
       {data && (
         <div className="flex flex-col gap-3">
-          {data.items.length === 0 && (
-            <p className="text-muted-foreground py-8 text-center">Brak zadań.</p>
-          )}
-          {data.items.map((task) => (
-            <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
-          ))}
+          {/* Client-side filter: GET /tasks has no overdue param, and this
+              page has no pagination (always fetches the default limit of
+              50) — so filtering what's already loaded is exact for what's
+              displayed, though a project with >50 tasks could hide overdue
+              ones outside that page. */}
+          {(() => {
+            const visible = overdueOnly ? data.items.filter(isOverdue) : data.items;
+            return visible.length === 0 ? (
+              <p className="text-muted-foreground py-8 text-center">
+                {overdueOnly ? "Brak przeterminowanych zadań." : "Brak zadań."}
+              </p>
+            ) : (
+              visible.map((task) => (
+                <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
+              ))
+            );
+          })()}
         </div>
       )}
 

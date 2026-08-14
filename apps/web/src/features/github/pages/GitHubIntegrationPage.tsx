@@ -71,8 +71,6 @@ export function GitHubIntegrationPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Integracja GitHub</h1>
-
       <section className="space-y-2">
         <h2 className="text-lg font-medium">Repozytoria organizacji</h2>
         <InstallationList

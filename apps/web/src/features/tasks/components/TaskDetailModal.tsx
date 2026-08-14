@@ -10,6 +10,7 @@ import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 import { useUpdateTask, useDeleteTask } from "@/features/tasks/hooks/useTaskMutations";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { useOrgStore } from "@/shared/store/orgStore";
+import { toDueDateIso, fromDueDateIso } from "@/features/tasks/lib/dueDate";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -35,6 +36,7 @@ const UpdateSchema = z.object({
   status: z.enum(["backlog", "todo", "in_progress", "review", "done", "cancelled"]),
   priority: z.enum(["low", "medium", "high", "critical"]),
   assignee_id: z.string().nullable().optional(),
+  due_date: z.string().optional(),
 });
 type UpdateData = z.infer<typeof UpdateSchema>;
 
@@ -67,6 +69,7 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
       status: task.status,
       priority: task.priority,
       assignee_id: task.assignee_id ?? null,
+      due_date: task.due_date ? fromDueDateIso(task.due_date) : "",
     },
   });
 
@@ -75,7 +78,16 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
   const currentAssignee = watch("assignee_id");
 
   function onSubmit(data: UpdateData) {
-    updateTask.mutate({ taskId: task.id, data }, { onSuccess: onClose });
+    updateTask.mutate(
+      {
+        taskId: task.id,
+        data: {
+          ...data,
+          due_date: data.due_date ? toDueDateIso(data.due_date) : null,
+        },
+      },
+      { onSuccess: onClose }
+    );
   }
 
   function handleDelete() {
@@ -160,6 +172,11 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="modal-due-date">Termin</Label>
+            <Input id="modal-due-date" type="date" {...register("due_date")} />
           </div>
 
           <p className="text-xs text-muted-foreground">
