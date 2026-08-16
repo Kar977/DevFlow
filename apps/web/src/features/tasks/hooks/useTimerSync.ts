@@ -30,17 +30,22 @@ export function useTimerSync(): void {
 
     if (localTaskId === activeSession.task_id) return;
 
-    startSession({
-      taskId: activeSession.task_id,
-      taskTitle: activeSession.task_title,
-      startedAt: activeSession.started_at,
-    });
+    startSession(
+      {
+        taskId: activeSession.task_id,
+        taskTitle: activeSession.task_title,
+        startedAt: activeSession.started_at,
+      },
+      activeSession.long_running_threshold_seconds
+    );
     // startSession() always resets elapsedSeconds to 0, but a hydrated
     // session usually started in the past — without this, the sidebar's
-    // TimerIndicator would show 00:00 for a session running for hours.
-    const elapsedSinceStart = Math.floor(
-      (Date.now() - new Date(activeSession.started_at).getTime()) / 1000
-    );
-    useTimerStore.setState({ elapsedSeconds: Math.max(elapsedSinceStart, 0) });
+    // TimerIndicator would show 00:00 for a session running for hours. Seeded
+    // from the server's own elapsed_seconds rather than recomputed from
+    // started_at: it's server-clock-derived, so it can't drift from whatever
+    // decided is_long_running server-side.
+    useTimerStore.setState({
+      elapsedSeconds: Math.max(activeSession.elapsed_seconds, 0),
+    });
   }, [activeSession, isSuccess, localTaskId, startSession, stopSession]);
 }

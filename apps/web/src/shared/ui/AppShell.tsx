@@ -1,6 +1,7 @@
 import { Toaster } from "sonner";
 import { useTimerSync } from "@/features/tasks/hooks/useTimerSync";
 import { OverdueTasksBanner } from "@/features/tasks/components/OverdueTasksBanner";
+import { StaleTimerBanner } from "@/features/tasks/components/StaleTimerBanner";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -16,6 +17,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar />
         <main className="flex-1 overflow-y-auto p-6">
+          <StaleTimerBanner />
           <OverdueTasksBanner />
           {children}
         </main>

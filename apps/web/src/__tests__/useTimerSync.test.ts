@@ -15,7 +15,11 @@ function wrapper() {
 
 beforeEach(() => {
   useTimerStore.getState().stopSession();
-  useTimerStore.setState({ activeSession: null, elapsedSeconds: 0 });
+  useTimerStore.setState({
+    activeSession: null,
+    elapsedSeconds: 0,
+    longRunningThresholdSeconds: null,
+  });
 });
 
 afterEach(() => {
@@ -41,7 +45,15 @@ describe("useTimerSync", () => {
     server.use(
       http.get("*/tasks/sessions/active", () =>
         HttpResponse.json({
-          data: { id: "s1", task_id: "task-1", task_title: "Wire rate limiter", started_at: startedAt },
+          data: {
+            id: "s1",
+            task_id: "task-1",
+            task_title: "Wire rate limiter",
+            started_at: startedAt,
+            elapsed_seconds: 300,
+            is_long_running: false,
+            long_running_threshold_seconds: 21600,
+          },
         })
       )
     );
@@ -52,8 +64,10 @@ describe("useTimerSync", () => {
       expect(useTimerStore.getState().activeSession?.taskId).toBe("task-1");
     });
     expect(useTimerStore.getState().activeSession?.taskTitle).toBe("Wire rate limiter");
-    // Must reflect the real elapsed time since startedAt, not reset to 0.
-    expect(useTimerStore.getState().elapsedSeconds).toBeGreaterThanOrEqual(290);
+    // Seeded from the server's own elapsed_seconds, not reset to 0 or
+    // recomputed from started_at on the client.
+    expect(useTimerStore.getState().elapsedSeconds).toBe(300);
+    expect(useTimerStore.getState().longRunningThresholdSeconds).toBe(21600);
   });
 
   it("clears a locally-stale session once the server reports none active", async () => {
