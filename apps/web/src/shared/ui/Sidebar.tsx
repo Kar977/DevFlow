@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useTimerStore } from "@/shared/store/timerStore";
+import { formatElapsed } from "@/features/tasks/lib/trackedTime";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -51,14 +52,10 @@ function TimerIndicator() {
   const { activeSession, elapsedSeconds } = useTimerStore();
   if (!activeSession) return null;
 
-  const minutes = Math.floor(elapsedSeconds / 60);
-  const seconds = elapsedSeconds % 60;
-  const formatted = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-
   return (
     <div className="mx-3 mt-auto rounded-lg border border-border bg-muted p-3 text-sm">
       <p className="font-medium text-foreground truncate">{activeSession.taskTitle}</p>
-      <p className="text-muted-foreground tabular-nums">{formatted}</p>
+      <p className="text-muted-foreground tabular-nums">{formatElapsed(elapsedSeconds)}</p>
     </div>
   );
 }

@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, Query, status
 from devflow_api.core.schemas.pagination import PageMeta
 from devflow_api.core.schemas.tasks import (
     ActiveSessionEnvelope,
-    ActiveSessionResponse,
     CreateTaskRequest,
     TaskListResponse,
     TaskResponse,
@@ -177,17 +176,7 @@ async def get_active_session(
     service: TaskService = Depends(get_task_service),
 ) -> ActiveSessionEnvelope:
     result = await service.get_active_session(user_id=subject.user_id)
-    if result is None:
-        return ActiveSessionEnvelope(data=None)
-    session, task_title = result
-    return ActiveSessionEnvelope(
-        data=ActiveSessionResponse(
-            id=session.id,
-            task_id=session.task_id,
-            task_title=task_title,
-            started_at=session.started_at,
-        )
-    )
+    return ActiveSessionEnvelope(data=result)
 
 
 @router.post(

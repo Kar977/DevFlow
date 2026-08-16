@@ -6,6 +6,9 @@ export interface ActiveSession {
   task_id: string;
   task_title: string;
   started_at: string;
+  elapsed_seconds: number;
+  is_long_running: boolean;
+  long_running_threshold_seconds: number;
 }
 
 export const activeSessionKey = ["tasks", "active-session"] as const;

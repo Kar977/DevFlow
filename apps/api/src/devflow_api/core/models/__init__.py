@@ -12,6 +12,7 @@ from devflow_api.core.models.report import Report
 from devflow_api.core.models.repository import Repository
 from devflow_api.core.models.sync_run import SyncRun
 from devflow_api.core.models.task import Task
+from devflow_api.core.models.task_status_change import TaskStatusChange
 from devflow_api.core.models.user import User
 from devflow_api.core.models.work_session import WorkSession
 
@@ -28,6 +29,7 @@ __all__ = [
     "Repository",
     "SyncRun",
     "Task",
+    "TaskStatusChange",
     "User",
     "WorkSession",
 ]

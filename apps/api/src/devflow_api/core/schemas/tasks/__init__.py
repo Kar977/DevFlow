@@ -81,6 +81,9 @@ class ActiveSessionResponse(BaseModel):
     task_id: uuid.UUID
     task_title: str
     started_at: datetime
+    elapsed_seconds: int
+    is_long_running: bool
+    long_running_threshold_seconds: int
 
 
 class ActiveSessionEnvelope(BaseModel):
