@@ -15,10 +15,10 @@ from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.models.user import User
 from devflow_api.core.schemas.metrics import PRDashboardResponse
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
+from devflow_api.core.services.period import week_start as _week_start
 from devflow_api.core.services.pr_metrics import (
     PRMetricsService,
     _build_pr_trends,
-    _week_start,
     get_pr_metrics_service,
 )
 from devflow_api.main import create_app

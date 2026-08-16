@@ -45,6 +45,8 @@ from devflow_api.core.schemas.metrics import (
     WeeklyVelocityPointResponse,
 )
 from devflow_api.core.services.cache_aside import cached
+from devflow_api.core.services.period import as_utc as _as_utc
+from devflow_api.core.services.period import week_start as _week_start
 
 _DEFAULT_PERIOD_DAYS = 30
 
@@ -54,10 +56,6 @@ T = TypeVar("T", bound=BaseModel)
 # ---------------------------------------------------------------------------
 # Pure helpers (no state)
 # ---------------------------------------------------------------------------
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _resolve_period(
@@ -85,12 +83,6 @@ def _completion_time(task: Task) -> datetime:
 
 def _completed_in(task: Task, start: datetime, end: datetime) -> bool:
     return task.status == "done" and start <= _completion_time(task) <= end
-
-
-def _week_start(moment: datetime) -> date:
-    """Monday of the ISO week containing *moment*, in UTC."""
-    day = _as_utc(moment).date()
-    return day - timedelta(days=day.weekday())
 
 
 def _session_minutes_in(session: WorkSession, start: datetime, end: datetime) -> float:
