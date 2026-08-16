@@ -30,6 +30,8 @@ from devflow_api.core.schemas.metrics import (
 )
 from devflow_api.core.services.cache_aside import cached
 from devflow_api.core.services.org_access import require_member
+from devflow_api.core.services.period import as_utc as _ensure_aware
+from devflow_api.core.services.period import week_start as _week_start
 
 _STALE_THRESHOLD_DAYS = 5
 _VELOCITY_WINDOW_DAYS = 7
@@ -289,18 +291,6 @@ def _slowest_first_review(prs: list[PullRequest], *, limit: int) -> list[PullReq
         reverse=True,
     )
     return reviewed[:limit]
-
-
-def _ensure_aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
-
-
-def _week_start(moment: datetime) -> date:
-    """Monday of the ISO week containing *moment*, in UTC."""
-    day = _ensure_aware(moment).date()
-    return day - timedelta(days=day.weekday())
 
 
 def _build_pr_trends(

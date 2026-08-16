@@ -13,6 +13,9 @@ export type {
   PRDashboardMember,
   PRTrends,
   PRTrendPoint,
+  MetricTrends,
+  MetricTrendSeries,
+  MetricTrendPoint,
 } from "@/shared/api/schemas/metrics";
 
 export type ApiError = {

@@ -150,7 +150,7 @@ Status 15 luk wypisanych powyżej:
 | 2 | model + migracja `pull_requests` | ✅ migracja 0007 |
 | 3 | model + migracja `pull_request_reviews` | ✅ migracja 0007 |
 | 4 | model + migracja `sync_runs` | ✅ migracja 0007 |
-| 5 | model + migracja `metric_snapshots` | ❌ nie zaimplementowano (brief oznacza jako opcjonalne dla MVP) |
+| 5 | model + migracja `metric_snapshots` | ✅ migracja 0018 — generyczna tabela (`scope="user"`/`"org"`), wypełniana leniwie przy odczycie `GET /metrics/trends` i `/metrics/org-trends`; bez kolumny `repo_id?` z briefu, patrz uwaga niżej |
 | 6 | sync refactor repos → PRs → reviews | ✅ `OrgSyncService` |
 | 7 | 5 KPI PR-flow | ✅ `core/services/pr_metrics.py` — wszystkie 5 formuł |
 | 8 | routes `/repositories`, `/pull-requests`, `/pull-requests/{id}`, dashboard KPI | ✅ (+ `/metrics/pr-dashboard`, `/metrics/pr-dashboard/members`) |
@@ -162,10 +162,12 @@ Status 15 luk wypisanych powyżej:
 | 14 | dashboard z KPI PR-flow | ✅ `PRDashboardTab` |
 | 15 | `apps/web/.env.example` | ✅ |
 
-**15 z 15 luk zamkniętych** (2026-08-11, branch `feature/audit-gaps-and-task-completed-at`).
-`metric_snapshots` (pozycja 5) pozostaje świadomie pominięte, zgodnie z adnotacją briefu, że
-tabela jest opcjonalna dla MVP — jedyny punkt z oryginalnej listy 15 luk, który nie jest
-"zamknięty", bo nigdy nie był w zakresie.
+**15 z 15 luk zamkniętych.** Pozycja 9 (raport PR-flow z bottleneckami) i 12 (sortowanie PR po
+wieku) zamknięte 2026-08-11 na branchu `feature/audit-gaps-and-task-completed-at`.
+`metric_snapshots` (pozycja 5), ostatnia świadomie odłożona jako opcjonalna dla MVP, domknięta
+2026-08-16 na branchu `feature/metric-snapshots` — bez kolumny `repo_id?` ze szkicu briefu, bo
+żaden dzisiejszy KPI nie jest liczony per-repozytorium i nic by jej nie czytało; dodanie nullable
+kolumny później byłoby małą migracją, gdyby taka potrzeba się pojawiła.
 
 Rozbieżności architektoniczne z tabeli wyżej pozostają bez zmian i są świadomym wyborem
 (multi-org zamiast single-org, role `owner/admin/member`, JWT bearer + httpOnly refresh cookie

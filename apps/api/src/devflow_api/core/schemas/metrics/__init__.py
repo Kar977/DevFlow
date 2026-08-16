@@ -147,6 +147,35 @@ class PRFlowBottlenecksResponse(BaseModel):
     slowest_first_review: list[SlowReviewBottleneckResponse]
 
 
+class MetricTrendPointResponse(BaseModel):
+    """One ISO week's value for a metric (Monday-anchored, UTC).
+
+    ``value: None`` means "computed, no sample that week" (e.g. no reviewed
+    PR to average, no estimated+worked task) — distinct from a metric that
+    legitimately counted zero, which stores ``0.0``. The most recent point
+    covers the current, still-open week and is always computed live, never
+    read from a persisted snapshot.
+    """
+
+    week_start: date
+    value: float | None
+
+
+class MetricTrendSeriesResponse(BaseModel):
+    """Zero-filled series for one metric: exactly one point per week in the
+    requested horizon, oldest first."""
+
+    metric_key: str
+    points: list[MetricTrendPointResponse]
+
+
+class MetricTrendsResponse(BaseModel):
+    period_from: datetime
+    period_to: datetime
+    weeks: int
+    series: list[MetricTrendSeriesResponse]
+
+
 class PRFlowReportResponse(BaseModel):
     """Payload shape for the ``pr_flow_weekly`` report type — the 5 PR-flow
     KPIs computed over an explicit period, plus the PRs actually driving

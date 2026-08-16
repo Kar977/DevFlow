@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { UserSchema, AccessTokenResponseSchema, LoginRequestSchema } from "@/shared/api/schemas/auth";
 import { OrganizationSchema } from "@/shared/api/schemas/organization";
+import { MetricTrendsSchema } from "@/shared/api/schemas/metrics";
 
 describe("UserSchema", () => {
   it("parses valid user", () => {
@@ -56,5 +57,25 @@ describe("OrganizationSchema", () => {
       updated_at: "2024-01-01T00:00:00Z",
     };
     expect(OrganizationSchema.parse(raw)).toEqual(raw);
+  });
+});
+
+describe("MetricTrendsSchema", () => {
+  it("parses a series with null points (no sample that week)", () => {
+    const raw = {
+      period_from: "2026-02-16T00:00:00Z",
+      period_to: "2026-08-10T00:00:00Z",
+      weeks: 26,
+      series: [
+        {
+          metric_key: "tasks_completed",
+          points: [
+            { week_start: "2026-08-03", value: 2 },
+            { week_start: "2026-08-10", value: null },
+          ],
+        },
+      ],
+    };
+    expect(MetricTrendsSchema.parse(raw)).toEqual(raw);
   });
 });
