@@ -12,6 +12,7 @@ from devflow_api.core.cache import InMemoryCache
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
 from devflow_api.core.models.task import OVERDUE_EXCLUDED_STATUSES, Task
+from devflow_api.core.models.task_status_change import TaskStatusChange
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.task import TaskService, get_task_service
@@ -315,6 +316,31 @@ class FakeWorkSessionRepository:
         return session
 
 
+class FakeTaskStatusChangeRepository:
+    def __init__(self) -> None:
+        self.records: list[TaskStatusChange] = []
+
+    async def record(
+        self,
+        *,
+        task_id: uuid.UUID,
+        from_status: str | None,
+        to_status: str,
+        changed_by: uuid.UUID | None,
+        changed_at: datetime,
+    ) -> TaskStatusChange:
+        change = TaskStatusChange(
+            id=uuid.uuid4(),
+            task_id=task_id,
+            from_status=from_status,
+            to_status=to_status,
+            changed_by=changed_by,
+            changed_at=changed_at,
+        )
+        self.records.append(change)
+        return change
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -360,17 +386,25 @@ def session_repo(task_repo: FakeTaskRepository) -> FakeWorkSessionRepository:
 
 
 @pytest.fixture()
+def status_change_repo() -> FakeTaskStatusChangeRepository:
+    return FakeTaskStatusChangeRepository()
+
+
+@pytest.fixture()
 def service(
     task_repo: FakeTaskRepository,
     session_repo: FakeWorkSessionRepository,
     project_repo: FakeProjectRepository,
     org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
 ) -> TaskService:
     return TaskService(
         task_repo=task_repo,  # type: ignore[arg-type]
         work_session_repo=session_repo,  # type: ignore[arg-type]
         project_repo=project_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
+        long_running_session_hours=6,
     )
 
 
@@ -891,6 +925,119 @@ def test_update_task_invalid_status_returns_422(
     assert response.status_code == 422
 
 
+# ---------------------------------------------------------------------------
+# Tests — status transition history
+# ---------------------------------------------------------------------------
+
+
+def test_create_task_records_initial_status_change(
+    service: TaskService,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+
+    assert len(status_change_repo.records) == 1
+    change = status_change_repo.records[0]
+    assert change.task_id == task.id
+    assert change.from_status is None
+    assert change.to_status == "backlog"
+    assert change.changed_by == user_id
+    assert change.changed_at == task.created_at
+
+
+def test_update_task_records_status_transition(
+    client: TestClient,
+    service: TaskService,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    status_change_repo.records.clear()  # drop the creation-time row
+
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "in_progress"})
+
+    assert response.status_code == 200
+    assert len(status_change_repo.records) == 1
+    change = status_change_repo.records[0]
+    assert change.task_id == task.id
+    assert change.from_status == "backlog"
+    assert change.to_status == "in_progress"
+    assert change.changed_by == user_id
+
+
+def test_update_task_without_status_field_records_nothing(
+    client: TestClient,
+    service: TaskService,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    status_change_repo.records.clear()
+
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"title": "Renamed"})
+
+    assert response.status_code == 200
+    assert status_change_repo.records == []
+
+
+def test_update_task_with_unchanged_status_records_nothing(
+    client: TestClient,
+    service: TaskService,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    status_change_repo.records.clear()
+
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "backlog"})
+
+    assert response.status_code == 200
+    assert status_change_repo.records == []
+
+
+def test_status_change_timestamp_matches_completed_at(
+    client: TestClient,
+    service: TaskService,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    status_change_repo.records.clear()
+
+    response = client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+
+    completed_at = response.json()["completed_at"]
+    change = status_change_repo.records[-1]
+    assert change.to_status == "done"
+    assert change.changed_at.isoformat().replace("+00:00", "Z") == completed_at
+
+
+def test_failed_update_records_no_status_change(
+    client: TestClient,
+    service: TaskService,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    status_change_repo.records.clear()
+    other_user_id = uuid.uuid4()  # not a member of the project's organization
+
+    response = client.patch(
+        f"/api/v1/tasks/{task.id}",
+        json={"status": "in_progress", "assignee_id": str(other_user_id)},
+    )
+
+    assert response.status_code == 422
+    assert status_change_repo.records == []
+
+
 def test_update_task_can_unassign(
     client: TestClient,
     service: TaskService,
@@ -1164,6 +1311,126 @@ def test_get_active_session_returns_session_with_task_title(
     assert data["task_title"] == "Fix the bug"
 
 
+# ---------------------------------------------------------------------------
+# Tests — long-running session warning
+# ---------------------------------------------------------------------------
+
+
+def test_active_session_reports_elapsed_seconds(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    started_at = datetime.now(UTC) - timedelta(minutes=5)
+    session_repo.seed_active(task_id=task.id, user_id=user_id, started_at=started_at)
+
+    response = client.get("/api/v1/tasks/sessions/active")
+
+    data = response.json()["data"]
+    # Allow a little slack for wall-clock time elapsed during the test itself.
+    assert 295 <= data["elapsed_seconds"] <= 320
+
+
+def test_active_session_returns_threshold_seconds(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    session_repo.seed_active(
+        task_id=task.id, user_id=user_id, started_at=datetime.now(UTC)
+    )
+
+    response = client.get("/api/v1/tasks/sessions/active")
+
+    # The `service` fixture is built with long_running_session_hours=6.
+    assert response.json()["data"]["long_running_threshold_seconds"] == 6 * 3600
+
+
+def test_active_session_not_flagged_below_threshold(
+    client: TestClient,
+    service: TaskService,
+    session_repo: FakeWorkSessionRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    task = _make_task(service, project_id=project_id, user_id=user_id)
+    started_at = datetime.now(UTC) - timedelta(hours=1)
+    session_repo.seed_active(task_id=task.id, user_id=user_id, started_at=started_at)
+
+    response = client.get("/api/v1/tasks/sessions/active")
+
+    assert response.json()["data"]["is_long_running"] is False
+
+
+def test_active_session_flags_long_running_past_threshold(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = TaskService(
+        task_repo=task_repo,  # type: ignore[arg-type]
+        work_session_repo=session_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
+        long_running_session_hours=1,
+    )
+    task = asyncio.run(
+        svc.create_task(project_id=project_id, user_id=user_id, title="t")
+    )
+    started_at = datetime.now(UTC) - timedelta(hours=2)
+    session_repo.seed_active(task_id=task.id, user_id=user_id, started_at=started_at)
+
+    result = asyncio.run(svc.get_active_session(user_id=user_id))
+
+    assert result is not None
+    assert result.is_long_running is True
+    assert result.long_running_threshold_seconds == 3600
+
+
+def test_active_session_handles_naive_started_at(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A naive `started_at` (no tzinfo) must not raise when compared against
+    an aware `datetime.now(UTC)` — regression guard for the `_as_utc` coercion
+    that `get_active_session` shares with `stop_session`."""
+    svc = TaskService(
+        task_repo=task_repo,  # type: ignore[arg-type]
+        work_session_repo=session_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
+    )
+    task = asyncio.run(
+        svc.create_task(project_id=project_id, user_id=user_id, title="t")
+    )
+    naive_started_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1)
+    session_repo.seed_active(
+        task_id=task.id, user_id=user_id, started_at=naive_started_at
+    )
+
+    result = asyncio.run(svc.get_active_session(user_id=user_id))
+
+    assert result is not None
+    assert result.elapsed_seconds >= 0
+
+
 def test_get_active_for_user_survives_duplicate_open_sessions() -> None:
     """A partial unique index now prevents two open sessions per user at the
     DB level, but the repo query must stay defensive: `scalar_one_or_none()`
@@ -1197,6 +1464,7 @@ def test_update_task_to_done_invalidates_assignee_metrics_cache(
     session_repo: FakeWorkSessionRepository,
     project_repo: FakeProjectRepository,
     org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
     project_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> None:
@@ -1206,6 +1474,7 @@ def test_update_task_to_done_invalidates_assignee_metrics_cache(
         work_session_repo=session_repo,  # type: ignore[arg-type]
         project_repo=project_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
         cache=cache,
     )
     task = asyncio.run(
@@ -1226,6 +1495,7 @@ def test_update_task_to_non_done_status_does_not_invalidate_cache(
     session_repo: FakeWorkSessionRepository,
     project_repo: FakeProjectRepository,
     org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
     project_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> None:
@@ -1235,6 +1505,7 @@ def test_update_task_to_non_done_status_does_not_invalidate_cache(
         work_session_repo=session_repo,  # type: ignore[arg-type]
         project_repo=project_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
         cache=cache,
     )
     task = asyncio.run(
@@ -1255,6 +1526,7 @@ def test_stop_session_invalidates_user_metrics_cache(
     session_repo: FakeWorkSessionRepository,
     project_repo: FakeProjectRepository,
     org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
     project_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> None:
@@ -1264,6 +1536,7 @@ def test_stop_session_invalidates_user_metrics_cache(
         work_session_repo=session_repo,  # type: ignore[arg-type]
         project_repo=project_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
         cache=cache,
     )
     task = asyncio.run(

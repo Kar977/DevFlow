@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     redis_url: str = ""
     metrics_cache_ttl_seconds: int = 60
 
+    # Work sessions running longer than this are flagged as likely-forgotten
+    # in GET /tasks/sessions/active — a warning only, nothing is stopped
+    # automatically.
+    long_running_session_hours: int = 6
+
     @model_validator(mode="after")
     def _validate_production_settings(self) -> Settings:
         """Refuse to start in production with unsafe / default configuration."""
