@@ -792,27 +792,33 @@ def test_cycle_time_stuck_lists_non_terminal_tasks_longest_first(
     task_c = _task(status="done")
     metrics_repo.project_tasks[project_id] = [task_a, task_b, task_c]
     actor = uuid.uuid4()
+    # Anchored to a freshly captured instant, not the module-level NOW —
+    # that constant is captured once at import time, and by the time this
+    # test runs (possibly minutes into a full suite run) `datetime.now(UTC)`
+    # inside the service has drifted well past it, making an exact-hours
+    # assertion against NOW flaky.
+    request_time = datetime.now(UTC)
     status_change_repo.rows = [
         _status_change(
             task_id=task_a.id,
             from_status="todo",
             to_status="in_progress",
             changed_by=actor,
-            changed_at=NOW - timedelta(hours=10),
+            changed_at=request_time - timedelta(hours=10),
         ),
         _status_change(
             task_id=task_b.id,
             from_status="in_progress",
             to_status="review",
             changed_by=actor,
-            changed_at=NOW - timedelta(hours=30),
+            changed_at=request_time - timedelta(hours=30),
         ),
         _status_change(
             task_id=task_c.id,
             from_status="review",
             to_status="done",
             changed_by=actor,
-            changed_at=NOW - timedelta(hours=5),
+            changed_at=request_time - timedelta(hours=5),
         ),
     ]
 
@@ -821,7 +827,9 @@ def test_cycle_time_stuck_lists_non_terminal_tasks_longest_first(
     stuck = response.json()["stuck"]
     assert [s["task_id"] for s in stuck] == [str(task_b.id), str(task_a.id)]
     assert stuck[0]["status"] == "review"
-    assert stuck[0]["hours_in_status"] == 30.0
+    # Small tolerance for the wall-clock gap between request_time (captured
+    # here) and datetime.now(UTC) (captured inside the service call above).
+    assert stuck[0]["hours_in_status"] == pytest.approx(30.0, abs=0.01)
 
 
 def test_cycle_time_stuck_capped_at_five(
