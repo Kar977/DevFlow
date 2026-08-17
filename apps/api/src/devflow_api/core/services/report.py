@@ -41,6 +41,9 @@ from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
 from devflow_api.core.repositories.pull_request import PullRequestRepository
 from devflow_api.core.repositories.report import ReportRepository
+from devflow_api.core.repositories.task_status_change import (
+    TaskStatusChangeRepository,
+)
 from devflow_api.core.repositories.user import UserRepository
 from devflow_api.core.services.metrics import MetricsService
 from devflow_api.core.services.org_access import require_member
@@ -307,6 +310,8 @@ async def _do_generate_report(
                 metrics_repo=MetricsRepository(session),
                 project_repo=ProjectRepository(session),
                 org_repo=OrganizationRepository(session),
+                user_repo=UserRepository(session),
+                status_change_repo=TaskStatusChangeRepository(session),
             )
             # Org is read from the persisted row, not the Protocol params —
             # keeps ReportGenerator's signature (and every test double) stable.

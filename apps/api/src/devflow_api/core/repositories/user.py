@@ -48,10 +48,13 @@ class UserRepository:
         *,
         full_name: str | None = None,
         avatar_url: str | None = None,
+        timezone: str | None = None,
     ) -> User:
         if full_name is not None:
             user.full_name = full_name
         if avatar_url is not None:
             user.avatar_url = avatar_url
+        if timezone is not None:
+            user.timezone = timezone
         await self._session.flush()
         return user

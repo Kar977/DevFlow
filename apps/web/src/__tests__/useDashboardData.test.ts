@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -71,5 +71,59 @@ describe("useDashboardData", () => {
     );
     const { result } = renderHook(() => useDashboardData(), { wrapper: createWrapper() });
     expect(result.current.isLoading).toBe(true);
+  });
+
+  describe("date_to param", () => {
+    const ORIGINAL_TZ = process.env.TZ;
+
+    beforeEach(() => {
+      process.env.TZ = "Europe/Warsaw";
+      // shouldAdvanceTime keeps setTimeout/setInterval running in real time
+      // (needed for waitFor's polling and MSW) while still letting
+      // setSystemTime pin `Date.now()`/`new Date()` to a fixed instant.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      // 23:30 UTC on Aug 16 is already Aug 17 local (CEST) — the exact
+      // boundary where the old `toISOString().split("T")[0]` sent the
+      // wrong (UTC) day.
+      vi.setSystemTime(new Date("2026-08-16T23:30:00Z"));
+    });
+
+    afterEach(() => {
+      process.env.TZ = ORIGINAL_TZ;
+      vi.useRealTimers();
+    });
+
+    it("sends the local date, not the UTC date", async () => {
+      let capturedDateTo: string | null = null;
+      server.use(
+        http.get("*/metrics/summary", ({ request }) => {
+          capturedDateTo = new URL(request.url).searchParams.get("date_to");
+          return HttpResponse.json({
+            period_from: "2026-07-18T00:00:00Z",
+            period_to: "2026-08-17T00:00:00Z",
+            tasks_completed: { value: 0, prev_value: 0, delta_pct: null },
+            active_hours: { value: 0, prev_value: 0, delta_pct: null },
+          });
+        }),
+        http.get("*/metrics/velocity", () =>
+          HttpResponse.json({
+            period_from: "2026-07-18T00:00:00Z",
+            period_to: "2026-08-17T00:00:00Z",
+            total_done: 0,
+            weeks: 4.29,
+            average_per_week: 0,
+            trend_pct: null,
+            weekly: [],
+          })
+        )
+      );
+
+      const { result } = renderHook(() => useDashboardData(), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      expect(capturedDateTo).toBe("2026-08-17");
+    });
   });
 });

@@ -83,6 +83,36 @@ class ProjectMetricsResponse(BaseModel):
     health: str
 
 
+class CycleTimeStageResponse(BaseModel):
+    """Average dwell time in one status, from `task_status_changes`.
+
+    Only counts transition pairs where the exit is a real recorded
+    transition (see `MetricsService._compute_cycle_time` for why some pairs
+    are excluded) — ``sample_size`` is how many such pairs contributed.
+    """
+
+    status: str
+    average_hours: float
+    sample_size: int
+
+
+class StuckTaskResponse(BaseModel):
+    """A task currently sitting in a non-terminal status the longest —
+    the bottleneck-detection companion to `CycleTimeStageResponse`, which
+    only reflects completed transitions."""
+
+    task_id: uuid.UUID
+    title: str
+    status: str
+    hours_in_status: float
+
+
+class CycleTimeResponse(BaseModel):
+    project_id: uuid.UUID
+    stages: list[CycleTimeStageResponse]
+    stuck: list[StuckTaskResponse]
+
+
 class PRDashboardResponse(BaseModel):
     stale_pr_count: int
     time_to_first_review: float | None

@@ -3,6 +3,7 @@
 from typing import Final
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -82,7 +83,12 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=error_payload(
                 code="validation_error",
                 message="Request validation failed.",
-                details={"errors": exc.errors()},
+                # pydantic error dicts can carry a `ctx.error` that is the
+                # raw exception instance a field_validator raised (e.g. a
+                # ValueError), which plain `json.dumps` can't serialize.
+                # jsonable_encoder is what FastAPI's own default handler
+                # uses to convert it to a JSON-safe string.
+                details={"errors": jsonable_encoder(exc.errors())},
             ),
             media_type=ERROR_MEDIA_TYPE,
         )

@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useProjectMetricsQuery, useProjectsQuery } from "@/features/projects/hooks/useProjectsQuery";
+import {
+  useCycleTimeQuery,
+  useProjectMetricsQuery,
+  useProjectsQuery,
+} from "@/features/projects/hooks/useProjectsQuery";
 import { useArchiveProject } from "@/features/projects/hooks/useProjectMutations";
+import { CycleTimePanel } from "@/features/projects/components/CycleTimePanel";
 import { useTasksQuery } from "@/features/tasks/hooks/useTasksQuery";
 import { TaskCard } from "@/features/tasks/components/TaskCard";
 import { TaskDetailModal } from "@/features/tasks/components/TaskDetailModal";
@@ -19,6 +24,7 @@ export function ProjectDetailPage() {
   const project = projectsData?.items.find((p) => p.id === projectId);
 
   const { data: metrics, isLoading: metricsLoading } = useProjectMetricsQuery(projectId ?? "");
+  const { data: cycleTime, isLoading: cycleTimeLoading } = useCycleTimeQuery(projectId ?? "");
   const { data: tasksData, isLoading: tasksLoading } = useTasksQuery({
     project_id: projectId ?? "",
   });
@@ -69,6 +75,8 @@ export function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      <CycleTimePanel data={cycleTime} isLoading={cycleTimeLoading} />
 
       <div>
         <div className="flex items-center justify-between mb-4">

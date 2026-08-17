@@ -1,4 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Label } from "@/shared/ui";
+import { TASK_STATUS_LABELS } from "@/features/tasks/lib/taskStatusLabels";
 
 interface Member {
   user_id: string;
@@ -17,12 +18,7 @@ interface Props {
 
 const STATUS_OPTIONS = [
   { value: "all", label: "Wszystkie statusy" },
-  { value: "backlog", label: "Backlog" },
-  { value: "todo", label: "To Do" },
-  { value: "in_progress", label: "W toku" },
-  { value: "review", label: "Review" },
-  { value: "done", label: "Ukończone" },
-  { value: "cancelled", label: "Anulowane" },
+  ...Object.entries(TASK_STATUS_LABELS).map(([value, label]) => ({ value, label })),
 ];
 
 const ALL_ASSIGNEES = "all";

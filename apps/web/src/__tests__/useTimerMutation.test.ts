@@ -9,6 +9,7 @@ import { useTimerMutation } from "@/features/tasks/hooks/useTimerMutation";
 import { activeSessionKey } from "@/features/tasks/hooks/useActiveSessionQuery";
 import { taskQueryKeys } from "@/features/tasks/hooks/useTasksQuery";
 import { useTimerStore } from "@/shared/store/timerStore";
+import { metricsQueryKeys } from "@/features/metrics/hooks/metricsQueryKeys";
 import type { Task } from "@/features/tasks/hooks/useTasksQuery";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -97,7 +98,7 @@ describe("useTimerMutation", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Task not found."));
   });
 
-  it("stop: on success, clears the store", async () => {
+  it("stop: on success, clears the store and invalidates the metrics queries", async () => {
     useTimerStore.getState().startSession({
       taskId: "task-b",
       taskTitle: "Task B",
@@ -108,12 +109,14 @@ describe("useTimerMutation", () => {
         HttpResponse.json({ id: "s1", ended_at: "2024-01-01T11:00:00Z", duration_seconds: 3600 })
       )
     );
-    const { Wrapper } = wrapper();
+    const { Wrapper, invalidateSpy } = wrapper();
     const { result } = renderHook(() => useTimerMutation(task), { wrapper: Wrapper });
 
     act(() => result.current.stop());
 
     await waitFor(() => expect(useTimerStore.getState().activeSession).toBeNull());
+    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0]?.queryKey);
+    expect(invalidatedKeys).toContainEqual(metricsQueryKeys.all);
   });
 
   it("switchTo: stops the currently active task, then starts this hook's task", async () => {
@@ -128,7 +131,7 @@ describe("useTimerMutation", () => {
         return HttpResponse.json({ id: "s1", started_at: "2024-01-01T10:00:00Z" }, { status: 201 });
       })
     );
-    const { Wrapper } = wrapper();
+    const { Wrapper, invalidateSpy } = wrapper();
     const { result } = renderHook(() => useTimerMutation(task), { wrapper: Wrapper });
 
     await act(async () => {
@@ -137,6 +140,8 @@ describe("useTimerMutation", () => {
 
     expect(calls).toEqual(["stop-a", "start-b"]);
     await waitFor(() => expect(useTimerStore.getState().activeSession?.taskId).toBe("task-b"));
+    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0]?.queryKey);
+    expect(invalidatedKeys).toContainEqual(metricsQueryKeys.all);
   });
 
   it("switchTo: does not start the new task when stopping the old one fails", async () => {
