@@ -26,8 +26,14 @@ Design notes
   empty week.
 - Closed weeks are immutable once written — a later edit to the source data
   (e.g. a task's `completed_at` changing after the fact) does not update an
-  already-captured snapshot. Accepted trade-off for this iteration; no
-  recompute endpoint exists yet.
+  already-captured snapshot. The escape hatch is
+  `MetricSnapshotService.recompute_user_trends` (``POST
+  /metrics/trends/recompute``), which deletes and lets the normal lazy
+  backfill rewrite. User scope only — see that service's docstring.
+- User-scope rows bucket by the user's own local time, not UTC — a stored
+  `timezone` on `User` shifts the week grid; org scope stays UTC-anchored.
+  See `devflow_api.core.services.period` and
+  `devflow_api.core.services.metric_snapshot`.
 - No `repository_id` column: no KPI is computed per-repository today, and
   nothing would read it. Adding a nullable column later is a small migration
   if that need arises — see `docs/reconciliation-report.md` item 5.

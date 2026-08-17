@@ -25,11 +25,27 @@ cache layer, not the fetch itself).
 `stale_pr_count` (the 5th PR-flow KPI) is deliberately not part of
 `ORG_METRIC_KEYS` — it's a point-in-time reading that can't be reconstructed
 for a past week from today's data.
+
+Timezone and recompute
+-----------------------
+User-scope weeks bucket by the *user's* local time (`period_start` is that
+user's local Monday midnight, expressed as a UTC instant — matches
+`MetricsService`). Org scope has no single user to anchor to and stays
+UTC-anchored, like `PRMetricsService`. Because a user's stored timezone can
+change and move their whole week grid, and because "closed weeks are
+immutable" would otherwise make a bad snapshot permanent,
+`recompute_user_trends` deletes a user's captured rows in the horizon and
+lets the normal lazy backfill in `_compute_user_trends` rewrite them — used
+both for a manual "my chart looks wrong" recompute (``POST
+/metrics/trends/recompute``) and as the repair step right after a timezone
+change. User scope only: org trends have no recompute route, since any
+member could force an org-wide rewrite (`delete_for_org` exists on the
+repository for symmetry but nothing calls it yet).
 """
 
 import uuid
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +61,7 @@ from devflow_api.core.repositories.metric_snapshot import MetricSnapshotReposito
 from devflow_api.core.repositories.metrics import MetricsRepository
 from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.pull_request import PullRequestRepository
+from devflow_api.core.repositories.user import UserRepository
 from devflow_api.core.schemas.metrics import (
     MetricTrendPointResponse,
     MetricTrendSeriesResponse,
@@ -52,7 +69,12 @@ from devflow_api.core.schemas.metrics import (
 )
 from devflow_api.core.services.cache_aside import cached
 from devflow_api.core.services.org_access import require_member
-from devflow_api.core.services.period import as_utc, week_start
+from devflow_api.core.services.period import (
+    as_utc,
+    day_start_utc,
+    resolve_tz,
+    week_start,
+)
 from devflow_api.core.services.pr_metrics import (
     _review_ratio,
     _review_velocity,
@@ -68,17 +90,18 @@ _DEFAULT_TRENDS_WEEKS = 26
 
 
 def _week_datetime(day: date) -> datetime:
+    """UTC-anchored Monday midnight — org scope only (no single user's tz)."""
     return datetime.combine(day, datetime.min.time(), tzinfo=UTC)
 
 
-def _horizon(now: datetime, weeks: int) -> tuple[list[date], date]:
+def _horizon(now: datetime, weeks: int, tz: tzinfo = UTC) -> tuple[list[date], date]:
     """Return (closed_weeks, current_week) covering *weeks* points total.
 
     ``closed_weeks`` has ``weeks - 1`` entries, oldest first, each a fully
     elapsed ISO week; ``current_week`` is the still-open week the horizon
-    ends on.
+    ends on. Both are computed in *tz* — org calls leave it at UTC.
     """
-    current = week_start(now)
+    current = week_start(now, tz)
     last_closed = current - timedelta(days=7)
     first_closed = last_closed - timedelta(days=7 * (weeks - 2))
     closed: list[date] = []
@@ -90,7 +113,7 @@ def _horizon(now: datetime, weeks: int) -> tuple[list[date], date]:
 
 
 def _user_weekly_values(
-    tasks: list[Task], sessions: list[WorkSession], weeks: list[date]
+    tasks: list[Task], sessions: list[WorkSession], weeks: list[date], tz: tzinfo
 ) -> dict[date, dict[str, float | None]]:
     """Compute each of USER_METRIC_KEYS for every week in *weeks*.
 
@@ -98,7 +121,7 @@ def _user_weekly_values(
     ``tasks_completed``, ``_compute_time_tracking`` for ``active_hours``,
     ``_compute_completion_rate`` for ``completion_rate``,
     ``_compute_estimation_accuracy`` for ``estimation_ratio``), bucketed by
-    ISO week instead of a single current/previous window.
+    the user's local ISO week instead of a single current/previous window.
     """
     done_by_week: dict[date, list[Task]] = {w: [] for w in weeks}
     created_by_week: dict[date, list[Task]] = {w: [] for w in weeks}
@@ -109,16 +132,16 @@ def _user_weekly_values(
         if not session.duration_seconds:
             continue
         actual_minutes_by_task[session.task_id] += session.duration_seconds / 60
-        bucket = week_start(session.started_at)
+        bucket = week_start(session.started_at, tz)
         if bucket in minutes_by_week:
             minutes_by_week[bucket] += session.duration_seconds / 60
 
     for task in tasks:
-        created_bucket = week_start(task.created_at)
+        created_bucket = week_start(task.created_at, tz)
         if created_bucket in created_by_week:
             created_by_week[created_bucket].append(task)
         if task.status == "done":
-            done_bucket = week_start(task.completed_at or task.updated_at)
+            done_bucket = week_start(task.completed_at or task.updated_at, tz)
             if done_bucket in done_by_week:
                 done_by_week[done_bucket].append(task)
 
@@ -233,6 +256,7 @@ class MetricSnapshotService:
         metrics_repo: MetricsRepository,
         pr_repo: PullRequestRepository,
         org_repo: OrganizationRepository,
+        user_repo: UserRepository,
         cache: CacheBackend | None = None,
         ttl_seconds: int = 60,
     ) -> None:
@@ -240,38 +264,54 @@ class MetricSnapshotService:
         self._metrics_repo = metrics_repo
         self._pr_repo = pr_repo
         self._org_repo = org_repo
+        self._user_repo = user_repo
         self._cache = cache
         self._ttl_seconds = ttl_seconds
+
+    async def _user_tz(self, user_id: uuid.UUID) -> tzinfo:
+        """Resolve the user's stored IANA zone, defaulting to UTC.
+
+        Mirrors ``MetricsService._user_tz`` — see that docstring. Called
+        before the cache key is built, so a timezone change (which moves
+        the whole week grid) self-heals on the next read instead of serving
+        another grid's numbers for the cache TTL.
+        """
+        user = await self._user_repo.get_by_id(user_id)
+        return resolve_tz(user.timezone if user is not None else None)
 
     async def get_user_trends(
         self, *, user_id: uuid.UUID, weeks: int = _DEFAULT_TRENDS_WEEKS
     ) -> MetricTrendsResponse:
-        key = f"metrics:trends:v1:user:{user_id}:{weeks}"
+        tz = await self._user_tz(user_id)
+        # "v2": adds the tz name to the key (v1 was UTC-only).
+        key = f"metrics:trends:v2:user:{user_id}:{tz}:{weeks}"
         return await cached(
             self._cache,
             key,
             MetricTrendsResponse,
             self._ttl_seconds,
-            lambda: self._compute_user_trends(user_id=user_id, weeks=weeks),
+            lambda: self._compute_user_trends(user_id=user_id, weeks=weeks, tz=tz),
         )
 
     async def _compute_user_trends(
-        self, *, user_id: uuid.UUID, weeks: int
+        self, *, user_id: uuid.UUID, weeks: int, tz: tzinfo
     ) -> MetricTrendsResponse:
         now = datetime.now(UTC)
-        closed_weeks, current_week = _horizon(now, weeks)
+        closed_weeks, current_week = _horizon(now, weeks, tz)
 
         existing = await self._snapshot_repo.list_for_user(
-            user_id, period_from=_week_datetime(closed_weeks[0])
+            user_id, period_from=day_start_utc(closed_weeks[0], tz)
         )
         existing_map: dict[tuple[str, date], float | None] = {
-            (row.metric_key, as_utc(row.period_start).date()): row.metric_value
+            (row.metric_key, week_start(row.period_start, tz)): row.metric_value
             for row in existing
         }
 
         tasks = await self._metrics_repo.get_tasks_for_user(user_id)
         sessions = await self._metrics_repo.get_work_sessions_for_user(user_id)
-        computed = _user_weekly_values(tasks, sessions, [*closed_weeks, current_week])
+        computed = _user_weekly_values(
+            tasks, sessions, [*closed_weeks, current_week], tz
+        )
 
         rows = [
             {
@@ -279,8 +319,8 @@ class MetricSnapshotService:
                 "user_id": user_id,
                 "org_id": None,
                 "metric_key": metric_key,
-                "period_start": _week_datetime(week),
-                "period_end": _week_datetime(week + timedelta(days=7)),
+                "period_start": day_start_utc(week, tz),
+                "period_end": day_start_utc(week + timedelta(days=7), tz),
                 "metric_value": computed[week][metric_key],
             }
             for week in closed_weeks
@@ -293,11 +333,35 @@ class MetricSnapshotService:
             USER_METRIC_KEYS, closed_weeks, current_week, existing_map, computed
         )
         return MetricTrendsResponse(
-            period_from=_week_datetime(closed_weeks[0]),
+            period_from=day_start_utc(closed_weeks[0], tz),
             period_to=as_utc(now),
             weeks=weeks,
             series=series,
         )
+
+    async def recompute_user_trends(
+        self, *, user_id: uuid.UUID, weeks: int = _DEFAULT_TRENDS_WEEKS
+    ) -> MetricTrendsResponse:
+        """Drop this user's captured snapshots in the horizon and rebuild.
+
+        The only escape from ``_build_series``'s "a captured week is
+        immutable" rule — see the module docstring. Also the repair step a
+        timezone change takes, since that moves the week grid itself.
+        Deletes, clears the cache, then delegates to
+        ``_compute_user_trends``, whose existing lazy backfill rewrites the
+        rows — no duplicated aggregation logic.
+        """
+        tz = await self._user_tz(user_id)
+        now = datetime.now(UTC)
+        closed_weeks, _current_week = _horizon(now, weeks, tz)
+
+        await self._snapshot_repo.delete_for_user(
+            user_id, period_from=day_start_utc(closed_weeks[0], tz)
+        )
+        if self._cache is not None:
+            await self._cache.delete_matching(str(user_id))
+
+        return await self._compute_user_trends(user_id=user_id, weeks=weeks, tz=tz)
 
     async def get_org_trends(
         self,
@@ -371,6 +435,7 @@ def get_metric_snapshot_service(
         snapshot_repo=MetricSnapshotRepository(session),
         metrics_repo=MetricsRepository(session),
         pr_repo=PullRequestRepository(session),
+        user_repo=UserRepository(session),
         org_repo=OrganizationRepository(session),
         cache=cache,
         ttl_seconds=settings.metrics_cache_ttl_seconds,

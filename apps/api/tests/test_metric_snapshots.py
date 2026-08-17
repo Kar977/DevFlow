@@ -9,6 +9,7 @@ produce a different value.
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,7 @@ from devflow_api.core.models.metric_snapshot import (
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.models.task import Task
+from devflow_api.core.models.user import User
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.metric_snapshot import (
@@ -138,6 +140,42 @@ class FakeSnapshotRepo:
             if r.scope == "org" and r.org_id == org_id and r.period_start >= period_from
         ]
 
+    async def delete_for_user(
+        self, user_id: uuid.UUID, *, period_from: datetime | None = None
+    ) -> int:
+        keep = []
+        removed = 0
+        for r in self.rows:
+            matches = (
+                r.scope == "user"
+                and r.user_id == user_id
+                and (period_from is None or r.period_start >= period_from)
+            )
+            if matches:
+                removed += 1
+            else:
+                keep.append(r)
+        self.rows = keep
+        return removed
+
+    async def delete_for_org(
+        self, org_id: uuid.UUID, *, period_from: datetime | None = None
+    ) -> int:
+        keep = []
+        removed = 0
+        for r in self.rows:
+            matches = (
+                r.scope == "org"
+                and r.org_id == org_id
+                and (period_from is None or r.period_start >= period_from)
+            )
+            if matches:
+                removed += 1
+            else:
+                keep.append(r)
+        self.rows = keep
+        return removed
+
     async def bulk_create(self, rows: list[dict[str, object]]) -> None:
         self.bulk_create_calls += 1
         existing_keys = {
@@ -209,6 +247,21 @@ class FakePRRepo:
         return self.prs
 
 
+class FakeUserRepo:
+    def __init__(self, *, timezone: str | None = None) -> None:
+        self._timezone = timezone
+
+    async def get_by_id(self, user_id: uuid.UUID) -> User:
+        return User(
+            id=user_id,
+            email="user@example.com",
+            hashed_password="x",
+            timezone=self._timezone,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+
+
 class FakeOrgRepo:
     def __init__(self) -> None:
         self._members: dict[tuple[uuid.UUID, uuid.UUID], OrganizationMember] = {}
@@ -262,17 +315,25 @@ def org_repo(org_id: uuid.UUID, user_id: uuid.UUID) -> FakeOrgRepo:
 
 
 @pytest.fixture()
+def user_repo() -> FakeUserRepo:
+    """Default: no timezone set — every existing test keeps UTC bucketing."""
+    return FakeUserRepo(timezone=None)
+
+
+@pytest.fixture()
 def service(
     snapshot_repo: FakeSnapshotRepo,
     metrics_repo: FakeMetricsRepo,
     pr_repo: FakePRRepo,
     org_repo: FakeOrgRepo,
+    user_repo: FakeUserRepo,
 ) -> MetricSnapshotService:
     return MetricSnapshotService(
         snapshot_repo=snapshot_repo,  # type: ignore[arg-type]
         metrics_repo=metrics_repo,  # type: ignore[arg-type]
         pr_repo=pr_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        user_repo=user_repo,  # type: ignore[arg-type]
     )
 
 
@@ -362,6 +423,44 @@ async def test_gap_is_filled_without_touching_existing_rows(
         assert other_point.value in (0.0, None)
 
 
+async def test_recompute_overwrites_a_captured_week(
+    service: MetricSnapshotService,
+    snapshot_repo: FakeSnapshotRepo,
+    metrics_repo: FakeMetricsRepo,
+    user_id: uuid.UUID,
+) -> None:
+    """The inverse of `test_gap_is_filled_without_touching_existing_rows`:
+    recompute is the one path allowed to overwrite an already-captured week
+    with a fresh value from current raw data."""
+    for key in USER_METRIC_KEYS:
+        snapshot_repo.seed(
+            scope="user",
+            user_id=user_id,
+            metric_key=key,
+            period_start=_week(2),
+            value=999.0,
+        )
+    metrics_repo.user_tasks = [_task(status="done", completed_at=_week(2))]
+
+    result = await service.recompute_user_trends(user_id=user_id, weeks=4)
+
+    tasks_completed = next(
+        s for s in result.series if s.metric_key == "tasks_completed"
+    )
+    point = next(p for p in tasks_completed.points if p.week_start == _week(2).date())
+    assert point.value == 1.0  # freshly computed, not the stale seeded 999.0
+
+    # A normal read afterwards must see the same rebuilt value, not the old
+    # seed — proving the row was actually replaced in storage, not just the
+    # in-memory response.
+    reread = await service.get_user_trends(user_id=user_id, weeks=4)
+    reread_series = next(s for s in reread.series if s.metric_key == "tasks_completed")
+    reread_point = next(
+        p for p in reread_series.points if p.week_start == _week(2).date()
+    )
+    assert reread_point.value == 1.0
+
+
 async def test_counting_metric_stores_zero_not_null(
     service: MetricSnapshotService,
     snapshot_repo: FakeSnapshotRepo,
@@ -432,6 +531,62 @@ async def test_series_length_and_order_match_horizon(
 
 
 # ---------------------------------------------------------------------------
+# Timezone-aware grid (user scope only)
+# ---------------------------------------------------------------------------
+
+
+async def test_user_scope_period_start_is_local_monday_midnight_in_utc(
+    snapshot_repo: FakeSnapshotRepo,
+    metrics_repo: FakeMetricsRepo,
+    pr_repo: FakePRRepo,
+    org_repo: FakeOrgRepo,
+    user_id: uuid.UUID,
+) -> None:
+    """A Warsaw user's captured week must be keyed by their local Monday
+    midnight (expressed as a UTC instant), not the UTC-anchored grid."""
+    service = MetricSnapshotService(
+        snapshot_repo=snapshot_repo,  # type: ignore[arg-type]
+        metrics_repo=metrics_repo,  # type: ignore[arg-type]
+        pr_repo=pr_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        user_repo=FakeUserRepo(timezone="Europe/Warsaw"),  # type: ignore[arg-type]
+    )
+    metrics_repo.user_tasks = [_task(status="done", completed_at=_week(1))]
+
+    await service.get_user_trends(user_id=user_id, weeks=4)
+
+    persisted_starts = sorted(r.period_start for r in snapshot_repo.rows)
+    # Europe/Warsaw is UTC+1 (CET) or UTC+2 (CEST); local midnight can never
+    # itself be 00:00 UTC.
+    assert all(ts.hour != 0 or ts.minute != 0 for ts in persisted_starts)
+    warsaw = ZoneInfo("Europe/Warsaw")
+    for ts in persisted_starts:
+        local = ts.astimezone(warsaw)
+        assert local.hour == 0
+        assert local.weekday() == 0  # Monday
+
+
+# ---------------------------------------------------------------------------
+# Recompute route
+# ---------------------------------------------------------------------------
+
+
+def test_recompute_route_returns_fresh_series(client: TestClient) -> None:
+    response = client.post("/api/v1/metrics/trends/recompute?weeks=4")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["weeks"] == 4
+    assert len(body["series"]) == len(USER_METRIC_KEYS)
+
+
+def test_recompute_route_requires_auth() -> None:
+    app = create_app()
+    with TestClient(app) as c:
+        response = c.post("/api/v1/metrics/trends/recompute")
+    assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Org scope
 # ---------------------------------------------------------------------------
 
@@ -450,6 +605,7 @@ async def test_org_trends_rejects_non_member(
         metrics_repo=metrics_repo,  # type: ignore[arg-type]
         pr_repo=pr_repo,  # type: ignore[arg-type]
         org_repo=FakeOrgRepo(),  # type: ignore[arg-type]  # no membership seeded
+        user_repo=FakeUserRepo(),  # type: ignore[arg-type]
     )
     with pytest.raises(AppError) as exc_info:
         await service.get_org_trends(org_id=org_id, user_id=user_id, weeks=4)
@@ -503,6 +659,7 @@ async def test_cache_hit_avoids_second_raw_fetch(
         metrics_repo=metrics_repo,  # type: ignore[arg-type]
         pr_repo=pr_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        user_repo=FakeUserRepo(),  # type: ignore[arg-type]
         cache=cache,
     )
     await service.get_user_trends(user_id=user_id, weeks=4)

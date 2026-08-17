@@ -9,25 +9,16 @@ import {
   EstimationAccuracyPanel,
   useMetricsQueries,
 } from "@/features/metrics";
-
-// Same 30-day default window `useDashboardData` uses for velocity/summary —
-// react-query dedupes the shared `["metrics", "velocity", params]` query
-// automatically as long as the params match, so no extra network request.
-function defaultDateTo(): string {
-  return new Date().toISOString().split("T")[0]!;
-}
-
-function defaultDateFrom(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
-  return d.toISOString().split("T")[0]!;
-}
+import { daysAgoLocal, todayLocal } from "@/shared/lib/localDate";
 
 export function DashboardPage() {
   const { summary, velocity, isLoading } = useDashboardData();
+  // Same 30-day default window `useDashboardData` uses for velocity/summary
+  // — react-query dedupes the shared `["metrics", "velocity", params]`
+  // query automatically as long as the params match, so no extra request.
   const { timeTracking, completionRate, estimationAccuracy } = useMetricsQueries({
-    date_from: defaultDateFrom(),
-    date_to: defaultDateTo(),
+    date_from: daysAgoLocal(30),
+    date_to: todayLocal(),
   });
 
   return (

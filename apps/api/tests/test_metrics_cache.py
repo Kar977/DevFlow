@@ -16,6 +16,7 @@ from devflow_api.core.cache import CacheBackend, InMemoryCache, RedisCache
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
 from devflow_api.core.models.task import Task
+from devflow_api.core.models.user import User
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.services.metrics import MetricsService
 
@@ -221,6 +222,29 @@ class _FakeProjectRepo:
         return self._projects.get(project_id)
 
 
+class _FakeUserRepo:
+    def __init__(self, *, timezone: str | None = None) -> None:
+        self._timezone = timezone
+
+    async def get_by_id(self, user_id: uuid.UUID) -> User:
+        return User(
+            id=user_id,
+            email="user@example.com",
+            hashed_password="x",
+            timezone=self._timezone,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+
+
+class _FakeStatusChangeRepo:
+    """Never actually called by these tests — get_cycle_time isn't exercised
+    here — but MetricsService's constructor requires the argument."""
+
+    async def list_for_tasks(self, task_ids: list[uuid.UUID]) -> list[object]:
+        return []
+
+
 class _FakeOrgRepo:
     def __init__(self, org_id: uuid.UUID, user_id: uuid.UUID) -> None:
         self._members: dict[tuple[uuid.UUID, uuid.UUID], OrganizationMember] = {
@@ -272,11 +296,14 @@ def _make_service(
     *,
     cache: InMemoryCache | None = None,
     ttl_seconds: int = 60,
+    timezone: str | None = None,
 ) -> MetricsService:
     return MetricsService(
         metrics_repo=repo,  # type: ignore[arg-type]
         project_repo=_FakeProjectRepo(org_id, project_id),  # type: ignore[arg-type]
         org_repo=_FakeOrgRepo(org_id, user_id),  # type: ignore[arg-type]
+        user_repo=_FakeUserRepo(timezone=timezone),  # type: ignore[arg-type]
+        status_change_repo=_FakeStatusChangeRepo(),  # type: ignore[arg-type]
         cache=cache,
         ttl_seconds=ttl_seconds,
     )
@@ -387,6 +414,27 @@ async def test_velocity_cache_hit(
     await service.get_velocity(user_id=uid)
 
     assert counting_repo.get_tasks_calls == 1
+
+
+async def test_different_timezones_produce_separate_cache_entries(
+    counting_repo: _CountingMetricsRepo,
+    uid: uuid.UUID,
+    org_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> None:
+    """A tz change must not serve another zone's cached numbers."""
+    cache = InMemoryCache()
+    service_utc = _make_service(
+        counting_repo, uid, org_id, project_id, cache=cache, timezone=None
+    )
+    service_warsaw = _make_service(
+        counting_repo, uid, org_id, project_id, cache=cache, timezone="Europe/Warsaw"
+    )
+
+    await service_utc.get_summary(user_id=uid)
+    await service_warsaw.get_summary(user_id=uid)
+
+    assert counting_repo.get_tasks_calls == 2
 
 
 async def test_streaks_cache_hit(

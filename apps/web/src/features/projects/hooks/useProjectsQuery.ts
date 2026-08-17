@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/shared/api/client";
 import { useOrgStore } from "@/shared/store/orgStore";
+import { CycleTimeSchema } from "@/shared/api/schemas/metrics";
 
 export interface Project {
   id: string;
@@ -19,6 +20,7 @@ export const projectQueryKeys = {
   list: (orgId: string) => [...projectQueryKeys.all, "list", orgId] as const,
   detail: (id: string) => [...projectQueryKeys.all, "detail", id] as const,
   metrics: (id: string) => [...projectQueryKeys.all, "metrics", id] as const,
+  cycleTime: (id: string) => [...projectQueryKeys.all, "cycle-time", id] as const,
 };
 
 export function useProjectsQuery() {
@@ -43,6 +45,17 @@ export function useProjectMetricsQuery(projectId: string) {
       apiClient
         .get(`/metrics/projects/${projectId}`)
         .then((r) => r.data),
+    enabled: !!projectId,
+  });
+}
+
+export function useCycleTimeQuery(projectId: string) {
+  return useQuery({
+    queryKey: projectQueryKeys.cycleTime(projectId),
+    queryFn: () =>
+      apiClient
+        .get(`/metrics/projects/${projectId}/cycle-time`)
+        .then((r) => CycleTimeSchema.parse(r.data)),
     enabled: !!projectId,
   });
 }

@@ -5,8 +5,11 @@ export const UserSchema = z.object({
   email: z.string().email(),
   full_name: z.string().nullable(),
   avatar_url: z.string().url().nullable(),
+  timezone: z.string().nullable(),
   created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
+  // The backend's UserResponse never actually returns this field — kept
+  // optional rather than required so a real API response still validates.
+  updated_at: z.string().datetime().optional(),
 });
 
 // Refresh tokens are never returned in the response body — the backend sets

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/shared/api/client";
 import { getErrorMessage, isConflictError } from "@/shared/api/errorMessage";
 import { useTimerStore } from "@/shared/store/timerStore";
+import { metricsQueryKeys } from "@/features/metrics/hooks/metricsQueryKeys";
 import { activeSessionKey } from "./useActiveSessionQuery";
 import { taskQueryKeys } from "./useTasksQuery";
 import type { Task } from "./useTasksQuery";
@@ -42,6 +43,10 @@ export function useTimerMutation(task: Task) {
       stopSession();
       void qc.invalidateQueries({ queryKey: taskQueryKeys.all });
       void qc.invalidateQueries({ queryKey: activeSessionKey });
+      // Tracked minutes just landed — the productivity dashboard (if open)
+      // would otherwise keep showing pre-stop numbers for up to its 30s
+      // staleTime.
+      void qc.invalidateQueries({ queryKey: metricsQueryKeys.all });
     },
     onError: (error) => {
       toast.error(getErrorMessage(error, "Nie udało się zatrzymać timera."));
@@ -64,6 +69,7 @@ export function useTimerMutation(task: Task) {
     stopSession();
     void qc.invalidateQueries({ queryKey: taskQueryKeys.all });
     void qc.invalidateQueries({ queryKey: activeSessionKey });
+    void qc.invalidateQueries({ queryKey: metricsQueryKeys.all });
     start.mutate();
   }
 

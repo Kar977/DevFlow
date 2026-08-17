@@ -1,12 +1,13 @@
 """Metrics routes — productivity dashboards over tasks and work sessions."""
 
 import uuid
-from datetime import datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
 from devflow_api.core.schemas.metrics import (
     CompletionRateResponse,
+    CycleTimeResponse,
     EstimationAccuracyResponse,
     MetricTrendsResponse,
     PRDashboardMembersResponse,
@@ -34,8 +35,8 @@ router = APIRouter()
 
 @router.get("/summary", response_model=SummaryResponse, summary="Productivity summary")
 async def get_summary(
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> SummaryResponse:
@@ -46,8 +47,8 @@ async def get_summary(
 
 @router.get("/velocity", response_model=VelocityResponse, summary="Task velocity")
 async def get_velocity(
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> VelocityResponse:
@@ -62,8 +63,8 @@ async def get_velocity(
     summary="Daily active hours",
 )
 async def get_time_tracking(
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> TimeTrackingResponse:
@@ -78,8 +79,8 @@ async def get_time_tracking(
     summary="Task completion rate",
 )
 async def get_completion_rate(
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> CompletionRateResponse:
@@ -94,8 +95,8 @@ async def get_completion_rate(
     summary="Estimation accuracy",
 )
 async def get_estimation_accuracy(
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> EstimationAccuracyResponse:
@@ -125,6 +126,19 @@ async def get_project_metrics(
     return await service.get_project_metrics(
         project_id=project_id, user_id=subject.user_id
     )
+
+
+@router.get(
+    "/projects/{project_id}/cycle-time",
+    response_model=CycleTimeResponse,
+    summary="Average time-in-status and currently stuck tasks for a project",
+)
+async def get_cycle_time(
+    project_id: uuid.UUID,
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: MetricsService = Depends(get_metrics_service),
+) -> CycleTimeResponse:
+    return await service.get_cycle_time(project_id=project_id, user_id=subject.user_id)
 
 
 @router.get(
@@ -205,6 +219,27 @@ async def get_metric_trends(
     ``MetricSnapshotService`` for the backfill algorithm.
     """
     return await service.get_user_trends(user_id=subject.user_id, weeks=weeks)
+
+
+@router.post(
+    "/trends/recompute",
+    response_model=MetricTrendsResponse,
+    summary="Recompute this user's persisted weekly trend snapshots",
+)
+async def recompute_metric_trends(
+    weeks: int = Query(default=26, ge=2, le=104),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: MetricSnapshotService = Depends(get_metric_snapshot_service),
+) -> MetricTrendsResponse:
+    """Drop and rebuild this user's captured snapshots in the horizon.
+
+    Closed weeks are normally immutable once captured (see
+    ``MetricSnapshotService``'s docstring) — this is the escape hatch, for
+    a manual "my chart looks wrong" retry and as the repair step the
+    frontend takes right after a timezone change, since that moves the
+    whole week grid. User scope only; there is no org equivalent.
+    """
+    return await service.recompute_user_trends(user_id=subject.user_id, weeks=weeks)
 
 
 @router.get(

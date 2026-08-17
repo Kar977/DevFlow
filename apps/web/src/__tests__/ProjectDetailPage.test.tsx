@@ -37,6 +37,13 @@ beforeEach(() => {
     http.get("*/metrics/projects/p1", () =>
       HttpResponse.json({ total_tasks: 3, completed_tasks: 1, total_hours: 5.5 })
     ),
+    http.get("*/metrics/projects/p1/cycle-time", () =>
+      HttpResponse.json({
+        project_id: "p1",
+        stages: [{ status: "in_progress", average_hours: 4, sample_size: 2 }],
+        stuck: [],
+      })
+    ),
     http.get("*/tasks", () =>
       HttpResponse.json({
         data: [
@@ -55,6 +62,9 @@ describe("ProjectDetailPage", () => {
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     expect(await screen.findByText("3")).toBeInTheDocument();
     expect(await screen.findByText("Fix bug")).toBeInTheDocument();
+    // Chart internals (recharts) aren't mocked at the page level — that's
+    // covered by CycleTimePanel.test.tsx — this just checks it's mounted.
+    expect(await screen.findByText("Cycle time per etap")).toBeInTheDocument();
   });
 
   it("archives the project and navigates back to the list", async () => {
