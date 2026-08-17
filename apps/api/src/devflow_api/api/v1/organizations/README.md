@@ -120,6 +120,23 @@ Error: `400` when attempting to remove the sole owner.
 
 ---
 
+### `PATCH /api/v1/organizations/{org_id}/members/{user_id}`
+
+Change a member's role. Requires `admin` or `owner` role; only an `owner` may
+grant or change the `owner` role (see the permissions matrix below).
+
+Request:
+```json
+{ "role": "admin" }
+```
+
+Response `200 OK`: updated `MemberResponse`.
+Errors: `403` when the caller lacks permission for the requested change,
+`404` when the target is not a member, `409` (`last_owner`) when the change
+would demote the organization's only owner.
+
+---
+
 ## Files to Create
 
 - `routes.py` — route handlers

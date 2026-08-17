@@ -28,4 +28,10 @@ describe("GenerateSchema", () => {
       GenerateSchema.safeParse({ type: "productivity_overview" }).success
     ).toBe(true);
   });
+
+  it("accepts the pr_flow_weekly report type", () => {
+    expect(GenerateSchema.safeParse({ type: "pr_flow_weekly" }).success).toBe(
+      true
+    );
+  });
 });

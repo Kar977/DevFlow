@@ -2,7 +2,9 @@
 
 Calculation rules follow ``docs/product/README.md`` § Productivity Metrics.
 A task is treated as "completed" when ``status == 'done'``; its completion time
-is approximated by ``updated_at`` (there is no dedicated completed_at column).
+is ``Task.completed_at`` (set once by ``TaskService.update_task`` on the
+``-> done`` transition), falling back to ``updated_at`` for rows written
+before that column existed.
 
 Cache
 -----
@@ -25,7 +27,7 @@ from devflow_api.core.cache import CacheBackend, get_cache
 from devflow_api.core.config import get_settings
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
-from devflow_api.core.models.task import Task
+from devflow_api.core.models.task import OVERDUE_EXCLUDED_STATUSES, Task
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.repositories.metrics import MetricsRepository
 from devflow_api.core.repositories.organization import OrganizationRepository
@@ -43,6 +45,8 @@ from devflow_api.core.schemas.metrics import (
     WeeklyVelocityPointResponse,
 )
 from devflow_api.core.services.cache_aside import cached
+from devflow_api.core.services.period import as_utc as _as_utc
+from devflow_api.core.services.period import week_start as _week_start
 
 _DEFAULT_PERIOD_DAYS = 30
 
@@ -52,10 +56,6 @@ T = TypeVar("T", bound=BaseModel)
 # ---------------------------------------------------------------------------
 # Pure helpers (no state)
 # ---------------------------------------------------------------------------
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def _resolve_period(
@@ -75,14 +75,14 @@ def _metric_value(value: float, prev_value: float) -> MetricValueResponse:
     return MetricValueResponse(value=value, prev_value=prev_value, delta_pct=delta_pct)
 
 
+def _completion_time(task: Task) -> datetime:
+    """Completion instant: the real column, falling back to updated_at for
+    rows written before completed_at existed (or set outside the service)."""
+    return _as_utc(task.completed_at or task.updated_at)
+
+
 def _completed_in(task: Task, start: datetime, end: datetime) -> bool:
-    return task.status == "done" and start <= _as_utc(task.updated_at) <= end
-
-
-def _week_start(moment: datetime) -> date:
-    """Monday of the ISO week containing *moment*, in UTC."""
-    day = _as_utc(moment).date()
-    return day - timedelta(days=day.weekday())
+    return task.status == "done" and start <= _completion_time(task) <= end
 
 
 def _session_minutes_in(session: WorkSession, start: datetime, end: datetime) -> float:
@@ -225,7 +225,7 @@ class MetricsService:
             cursor += timedelta(days=7)
         for task in tasks:
             if _completed_in(task, start, end):
-                buckets[_week_start(task.updated_at)] += 1
+                buckets[_week_start(_completion_time(task))] += 1
         weekly = [
             WeeklyVelocityPointResponse(week_start=day, tasks_completed=count)
             for day, count in sorted(buckets.items())
@@ -395,7 +395,7 @@ class MetricsService:
     async def _compute_streaks(self, *, user_id: uuid.UUID) -> StreakResponse:
         tasks = await self._metrics_repo.get_tasks_for_user(user_id)
         done_days = sorted(
-            {_as_utc(t.updated_at).date() for t in tasks if t.status == "done"}
+            {_completion_time(t).date() for t in tasks if t.status == "done"}
         )
         if not done_days:
             return StreakResponse(current_streak=0, longest_streak=0)
@@ -458,7 +458,7 @@ class MetricsService:
             for t in tasks
             if t.due_date is not None
             and _as_utc(t.due_date) < now
-            and t.status != "done"
+            and t.status not in OVERDUE_EXCLUDED_STATUSES
         )
         overdue_rate = (overdue / total * 100) if total else 0.0
         if overdue_rate < 10:

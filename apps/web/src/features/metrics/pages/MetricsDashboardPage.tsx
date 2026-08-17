@@ -5,7 +5,11 @@ import { TimeTrackingPanel } from "../components/TimeTrackingPanel";
 import { CompletionRatePanel } from "../components/CompletionRatePanel";
 import { EstimationAccuracyPanel } from "../components/EstimationAccuracyPanel";
 import { StreakPanel } from "../components/StreakPanel";
+import { MetricTrendsPanel } from "../components/MetricTrendsPanel";
 import { useMetricsQueries } from "../hooks/useMetricsQueries";
+import { useMetricTrendsQuery } from "../hooks/useMetricTrendsQuery";
+
+const DEFAULT_TRENDS_WEEKS = 26;
 
 function defaultDateTo() {
   return new Date().toISOString().split("T")[0]!;
@@ -20,11 +24,13 @@ function defaultDateFrom() {
 export function MetricsDashboardPage() {
   const [dateFrom, setDateFrom] = useState(defaultDateFrom);
   const [dateTo, setDateTo] = useState(defaultDateTo);
+  const [trendsWeeks, setTrendsWeeks] = useState(DEFAULT_TRENDS_WEEKS);
 
   const { velocity, timeTracking, completionRate, estimationAccuracy, streaks } = useMetricsQueries({
     date_from: dateFrom,
     date_to: dateTo,
   });
+  const trends = useMetricTrendsQuery(trendsWeeks);
 
   return (
     <div className="space-y-6">
@@ -39,6 +45,13 @@ export function MetricsDashboardPage() {
           }}
         />
       </div>
+
+      <MetricTrendsPanel
+        data={trends.data}
+        isLoading={trends.isLoading}
+        weeks={trendsWeeks}
+        onWeeksChange={setTrendsWeeks}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <VelocityPanel data={velocity.data} isLoading={velocity.isLoading} />

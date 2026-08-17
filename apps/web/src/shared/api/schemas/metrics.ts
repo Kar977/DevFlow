@@ -95,6 +95,23 @@ export const PRTrendsSchema = z.object({
   weekly: z.array(PRTrendPointSchema),
 });
 
+export const MetricTrendPointSchema = z.object({
+  week_start: z.string(),
+  value: z.number().nullable(),
+});
+
+export const MetricTrendSeriesSchema = z.object({
+  metric_key: z.string(),
+  points: z.array(MetricTrendPointSchema),
+});
+
+export const MetricTrendsSchema = z.object({
+  period_from: z.string(),
+  period_to: z.string(),
+  weeks: z.number(),
+  series: z.array(MetricTrendSeriesSchema),
+});
+
 export type MetricValue = z.infer<typeof MetricValueSchema>;
 export type Summary = z.infer<typeof SummarySchema>;
 export type WeeklyVelocityPoint = z.infer<typeof WeeklyVelocityPointSchema>;
@@ -109,3 +126,6 @@ export type PRDashboardMember = z.infer<typeof PRDashboardMemberSchema>;
 export type PRDashboardMembers = z.infer<typeof PRDashboardMembersSchema>;
 export type PRTrendPoint = z.infer<typeof PRTrendPointSchema>;
 export type PRTrends = z.infer<typeof PRTrendsSchema>;
+export type MetricTrendPoint = z.infer<typeof MetricTrendPointSchema>;
+export type MetricTrendSeries = z.infer<typeof MetricTrendSeriesSchema>;
+export type MetricTrends = z.infer<typeof MetricTrendsSchema>;

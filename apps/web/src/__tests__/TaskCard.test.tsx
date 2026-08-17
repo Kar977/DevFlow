@@ -87,4 +87,31 @@ describe("TaskCard", () => {
     renderCard(baseTask);
     expect(screen.queryByText(/👤/)).not.toBeInTheDocument();
   });
+
+  it("shows no due-date badge when the task has none", () => {
+    renderCard(baseTask);
+    expect(screen.queryByText(/📅/)).not.toBeInTheDocument();
+  });
+
+  it("shows a due-date badge without overdue styling for a future due date", () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    renderCard({ ...baseTask, due_date: future });
+    const badge = screen.getByText(/📅/);
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain("bg-slate-100");
+  });
+
+  it("shows overdue styling for a past due date on an open task", () => {
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    renderCard({ ...baseTask, due_date: past });
+    const badge = screen.getByText(/📅/);
+    expect(badge.className).toContain("bg-red-100");
+  });
+
+  it("does not show overdue styling for a past due date on a done task", () => {
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    renderCard({ ...baseTask, due_date: past, status: "done" });
+    const badge = screen.getByText(/📅/);
+    expect(badge.className).toContain("bg-slate-100");
+  });
 });

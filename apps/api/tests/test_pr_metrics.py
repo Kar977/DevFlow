@@ -15,10 +15,10 @@ from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.models.user import User
 from devflow_api.core.schemas.metrics import PRDashboardResponse
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
+from devflow_api.core.services.period import week_start as _week_start
 from devflow_api.core.services.pr_metrics import (
     PRMetricsService,
     _build_pr_trends,
-    _week_start,
     get_pr_metrics_service,
 )
 from devflow_api.main import create_app
@@ -254,6 +254,128 @@ def test_review_ratio_calculates_fraction() -> None:
     unreviewed = _pr()
     result = _run([reviewed, unreviewed])
     assert result.review_ratio == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# get_pr_flow_report — period-aware KPIs + bottlenecks (audit gap #9)
+# ---------------------------------------------------------------------------
+
+
+def test_get_pr_flow_report_computes_period_kpis() -> None:
+    service = _service(
+        [
+            _pr(state="merged", merged_at=_NOW - timedelta(days=2)),
+            _pr(
+                state="open",
+                created_offset_days=1,
+                first_review_at=_NOW - timedelta(hours=1),
+            ),
+        ]
+    )
+    result = asyncio.run(
+        service.get_pr_flow_report(
+            org_id=ORG_ID,
+            user_id=USER_ID,
+            date_from=_NOW - timedelta(days=7),
+            date_to=_NOW,
+        )
+    )
+    assert result.throughput == 1
+    assert result.review_ratio == pytest.approx(0.5)
+
+
+def test_get_pr_flow_report_bottlenecks_lists_stale_open_prs_oldest_first() -> None:
+    newer_stale = _pr(state="open", created_offset_days=6)
+    older_stale = _pr(state="open", created_offset_days=20)
+    not_stale = _pr(state="open", created_offset_days=1)
+    service = _service([newer_stale, older_stale, not_stale])
+    result = asyncio.run(
+        service.get_pr_flow_report(
+            org_id=ORG_ID, user_id=USER_ID, date_from=None, date_to=None
+        )
+    )
+    assert result.stale_pr_count == 2
+    ids = [item.number for item in result.bottlenecks.stale_open]
+    # oldest first
+    assert result.bottlenecks.stale_open[0].age_days > (
+        result.bottlenecks.stale_open[1].age_days
+    )
+    assert len(ids) == 2
+
+
+def test_get_pr_flow_report_bottlenecks_caps_at_five() -> None:
+    prs = [_pr(state="open", created_offset_days=10 + i) for i in range(8)]
+    service = _service(prs)
+    result = asyncio.run(
+        service.get_pr_flow_report(
+            org_id=ORG_ID, user_id=USER_ID, date_from=None, date_to=None
+        )
+    )
+    assert result.stale_pr_count == 8
+    assert len(result.bottlenecks.stale_open) == 5
+
+
+def test_get_pr_flow_report_lists_slowest_first_review() -> None:
+    slow = _pr(created_offset_days=5)
+    slow.first_review_at = _NOW - timedelta(days=1)  # ~4 days wait
+    fast = _pr(created_offset_days=1)
+    fast.first_review_at = _NOW - timedelta(hours=1)  # ~23h wait
+    unreviewed = _pr(created_offset_days=2)
+    service = _service([slow, fast, unreviewed])
+    result = asyncio.run(
+        service.get_pr_flow_report(
+            org_id=ORG_ID, user_id=USER_ID, date_from=None, date_to=None
+        )
+    )
+    waits = [item.wait_hours for item in result.bottlenecks.slowest_first_review]
+    assert len(waits) == 2
+    assert waits == sorted(waits, reverse=True)
+
+
+def test_get_pr_flow_report_rejects_non_member() -> None:
+    service = _service([], org_repo=FakeOrgRepo())  # no membership seeded
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.get_pr_flow_report(
+                org_id=ORG_ID, user_id=USER_ID, date_from=None, date_to=None
+            )
+        )
+    assert exc_info.value.status_code == 403
+
+
+def test_get_pr_flow_report_empty_org_returns_nulls_and_empty_lists() -> None:
+    service = _service([])
+    result = asyncio.run(
+        service.get_pr_flow_report(
+            org_id=ORG_ID, user_id=USER_ID, date_from=None, date_to=None
+        )
+    )
+    assert result.stale_pr_count == 0
+    assert result.time_to_first_review_h is None
+    assert result.review_velocity_h is None
+    assert result.throughput == 0
+    assert result.review_ratio is None
+    assert result.bottlenecks.stale_open == []
+    assert result.bottlenecks.slowest_first_review == []
+
+
+def test_pr_dashboard_windows_unchanged_after_generalising_helpers() -> None:
+    """Pin: get_pr_dashboard's output must not shift after _review_velocity
+    and _weekly_throughput were generalised to accept an explicit window
+    instead of hardcoding `now`."""
+    prs = [
+        _pr(state="merged", merged_at=_NOW - timedelta(days=3)),
+        _pr(
+            state="open",
+            created_offset_days=2,
+            first_review_at=_NOW - timedelta(hours=5),
+        ),
+    ]
+    result = _run(prs)
+    assert result.weekly_throughput == 1
+    assert result.review_velocity == pytest.approx(
+        (_NOW - timedelta(hours=5) - (_NOW - timedelta(days=2))).total_seconds() / 3600
+    )
 
 
 # ---------------------------------------------------------------------------

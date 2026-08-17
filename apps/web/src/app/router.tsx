@@ -20,11 +20,8 @@ const MetricsDashboardPage = lazy(() =>
 const ReportListPage = lazy(() =>
   import("@/features/reports/pages/ReportListPage").then((m) => ({ default: m.ReportListPage }))
 );
-const GitHubIntegrationPage = lazy(() =>
-  import("@/features/github/pages/GitHubIntegrationPage").then((m) => ({ default: m.GitHubIntegrationPage }))
-);
 const ProfilePage = lazy(() =>
-  import("@/features/auth/pages/ProfilePage").then((m) => ({ default: m.ProfilePage }))
+  import("@/features/profile/pages/ProfilePage").then((m) => ({ default: m.ProfilePage }))
 );
 const ProjectDetailPage = lazy(() =>
   import("@/features/projects/pages/ProjectDetailPage").then((m) => ({ default: m.ProjectDetailPage }))
@@ -73,7 +70,7 @@ export const router = createBrowserRouter([
       { path: "repositories", element: <RepositoryListPage /> },
       { path: "metrics", element: <MetricsDashboardPage /> },
       { path: "reports", element: <ReportListPage /> },
-      { path: "settings/github", element: <GitHubIntegrationPage /> },
+      { path: "settings/github", element: <Navigate to="/settings/organization" replace /> },
       { path: "settings/profile", element: <ProfilePage /> },
       { path: "settings/organization", element: <OrganizationSettingsPage /> },
     ],

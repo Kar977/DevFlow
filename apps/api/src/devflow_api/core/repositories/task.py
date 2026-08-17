@@ -6,7 +6,8 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from devflow_api.core.models.task import Task
+from devflow_api.core.models.project import Project
+from devflow_api.core.models.task import OVERDUE_EXCLUDED_STATUSES, Task
 from devflow_api.core.unset import UNSET, Unset
 
 
@@ -84,8 +85,9 @@ class TaskRepository:
     async def count_overdue_for_project(
         self, project_id: uuid.UUID, *, now: datetime
     ) -> int:
-        """Count tasks past their due date and not done — mirrors the overdue
-        rule already used by MetricsService._compute_project_metrics."""
+        """Count tasks past their due date and not done/cancelled — mirrors
+        the overdue rule shared with MetricsService._compute_project_metrics
+        via Task.OVERDUE_EXCLUDED_STATUSES."""
         stmt = (
             select(func.count())
             .select_from(Task)
@@ -93,7 +95,53 @@ class TaskRepository:
                 Task.project_id == project_id,
                 Task.due_date.is_not(None),
                 Task.due_date < now,
-                Task.status != "done",
+                Task.status.not_in(OVERDUE_EXCLUDED_STATUSES),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
+    async def list_overdue_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        org_id: uuid.UUID,
+        now: datetime,
+        limit: int,
+        offset: int,
+    ) -> list[Task]:
+        """Tasks assigned to `user_id`, past due, in projects owned by
+        `org_id` — the personal overdue feed backing the dashboard banner."""
+        stmt = (
+            select(Task)
+            .join(Project, Project.id == Task.project_id)
+            .where(
+                Project.org_id == org_id,
+                Task.assignee_id == user_id,
+                Task.due_date.is_not(None),
+                Task.due_date < now,
+                Task.status.not_in(OVERDUE_EXCLUDED_STATUSES),
+            )
+            .order_by(Task.due_date.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_overdue_for_user(
+        self, *, user_id: uuid.UUID, org_id: uuid.UUID, now: datetime
+    ) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(Task)
+            .join(Project, Project.id == Task.project_id)
+            .where(
+                Project.org_id == org_id,
+                Task.assignee_id == user_id,
+                Task.due_date.is_not(None),
+                Task.due_date < now,
+                Task.status.not_in(OVERDUE_EXCLUDED_STATUSES),
             )
         )
         result = await self._session.execute(stmt)
@@ -121,6 +169,7 @@ class TaskRepository:
         assignee_id: uuid.UUID | None | Unset = UNSET,
         due_date: datetime | None | Unset = UNSET,
         github_pr_url: str | None | Unset = UNSET,
+        completed_at: datetime | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
@@ -128,6 +177,8 @@ class TaskRepository:
             task.description = description
         if status is not None:
             task.status = status
+        if not isinstance(completed_at, Unset):
+            task.completed_at = completed_at
         if priority is not None:
             task.priority = priority
         if not isinstance(estimate_minutes, Unset):

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from devflow_api.core.schemas.metrics import (
     CompletionRateResponse,
     EstimationAccuracyResponse,
+    MetricTrendsResponse,
     PRDashboardMembersResponse,
     PRDashboardResponse,
     ProjectMetricsResponse,
@@ -18,6 +19,10 @@ from devflow_api.core.schemas.metrics import (
     VelocityResponse,
 )
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
+from devflow_api.core.services.metric_snapshot import (
+    MetricSnapshotService,
+    get_metric_snapshot_service,
+)
 from devflow_api.core.services.metrics import MetricsService, get_metrics_service
 from devflow_api.core.services.pr_metrics import (
     PRMetricsService,
@@ -179,4 +184,46 @@ async def get_pr_trends(
         user_id=subject.user_id,
         member_user_id=member_user_id,
         weeks=weeks,
+    )
+
+
+@router.get(
+    "/trends",
+    response_model=MetricTrendsResponse,
+    summary="Long-range weekly trends for productivity metrics",
+)
+async def get_metric_trends(
+    weeks: int = Query(default=26, ge=2, le=104),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: MetricSnapshotService = Depends(get_metric_snapshot_service),
+) -> MetricTrendsResponse:
+    """Weekly-bucketed history for the 4 productivity metrics.
+
+    Unlike ``/velocity`` etc. (current vs previous period), this covers a
+    long horizon (up to 104 weeks) by reading persisted weekly snapshots for
+    closed weeks and computing the current, still-open week live. See
+    ``MetricSnapshotService`` for the backfill algorithm.
+    """
+    return await service.get_user_trends(user_id=subject.user_id, weeks=weeks)
+
+
+@router.get(
+    "/org-trends",
+    response_model=MetricTrendsResponse,
+    summary="Long-range weekly trends for PR-flow KPIs",
+)
+async def get_org_metric_trends(
+    organization_id: uuid.UUID = Query(...),
+    weeks: int = Query(default=26, ge=2, le=104),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: MetricSnapshotService = Depends(get_metric_snapshot_service),
+) -> MetricTrendsResponse:
+    """Weekly-bucketed history for 4 of the 5 PR-flow KPIs.
+
+    ``stale_pr_count`` is excluded — it's a point-in-time reading that can't
+    be reconstructed for past weeks. For a shorter, always-live view see
+    ``/pr-trends``.
+    """
+    return await service.get_org_trends(
+        org_id=organization_id, user_id=subject.user_id, weeks=weeks
     )

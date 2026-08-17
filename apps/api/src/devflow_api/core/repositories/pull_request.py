@@ -94,6 +94,7 @@ class PullRequestRepository:
         repository_id: uuid.UUID | None = None,
         state: str | None = None,
         author_login: str | None = None,
+        sort: str = "newest",
         limit: int = 50,
         offset: int = 0,
     ) -> list[PullRequest]:
@@ -108,11 +109,12 @@ class PullRequestRepository:
             stmt = stmt.where(PullRequest.state == state)
         if author_login is not None:
             stmt = stmt.where(PullRequest.author_login == author_login)
-        stmt = (
-            stmt.order_by(PullRequest.created_at_github.desc())
-            .limit(limit)
-            .offset(offset)
+        order = (
+            PullRequest.created_at_github.asc()
+            if sort == "oldest"
+            else PullRequest.created_at_github.desc()
         )
+        stmt = stmt.order_by(order, PullRequest.id).limit(limit).offset(offset)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

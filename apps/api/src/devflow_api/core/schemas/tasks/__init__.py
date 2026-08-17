@@ -47,6 +47,7 @@ class TaskResponse(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    completed_at: datetime | None
     tracked_seconds: int = 0
 
     model_config = {"from_attributes": True}
@@ -73,3 +74,17 @@ class WorkSessionListResponse(BaseModel):
     """Not paginated — `meta` is omitted per the documented envelope contract."""
 
     data: list[WorkSessionResponse]
+
+
+class ActiveSessionResponse(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    task_title: str
+    started_at: datetime
+    elapsed_seconds: int
+    is_long_running: bool
+    long_running_threshold_seconds: int
+
+
+class ActiveSessionEnvelope(BaseModel):
+    data: ActiveSessionResponse | None

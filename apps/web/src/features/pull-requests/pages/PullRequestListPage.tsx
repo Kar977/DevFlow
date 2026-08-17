@@ -28,10 +28,12 @@ export function PullRequestListPage() {
   const [repositoryId, setRepositoryId] = useState<string>(
     searchParams.get("repository_id") ?? ""
   );
+  const [sort, setSort] = useState<"newest" | "oldest">("newest");
 
   const { data, isLoading, isError } = usePullRequestsQuery(activeOrgId, {
     state: state || undefined,
     repository_id: repositoryId || undefined,
+    sort,
   });
   const { data: reposData } = useRepositoriesQuery(activeOrgId);
 
@@ -86,7 +88,20 @@ export function PullRequestListPage() {
                 <th className="px-4 py-3">Autor</th>
                 <th className="px-4 py-3">Repo</th>
                 <th className="px-4 py-3">Stan</th>
-                <th className="px-4 py-3">Wiek</th>
+                <th
+                  className="px-4 py-3"
+                  aria-sort={sort === "oldest" ? "ascending" : "descending"}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSort((s) => (s === "oldest" ? "newest" : "oldest"))
+                    }
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                  >
+                    Wiek <span aria-hidden="true">{sort === "oldest" ? "↑" : "↓"}</span>
+                  </button>
+                </th>
                 <th className="px-4 py-3">1. review</th>
               </tr>
             </thead>

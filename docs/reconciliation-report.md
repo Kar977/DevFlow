@@ -150,21 +150,24 @@ Status 15 luk wypisanych powyżej:
 | 2 | model + migracja `pull_requests` | ✅ migracja 0007 |
 | 3 | model + migracja `pull_request_reviews` | ✅ migracja 0007 |
 | 4 | model + migracja `sync_runs` | ✅ migracja 0007 |
-| 5 | model + migracja `metric_snapshots` | ❌ nie zaimplementowano (brief oznacza jako opcjonalne dla MVP) |
+| 5 | model + migracja `metric_snapshots` | ✅ migracja 0018 — generyczna tabela (`scope="user"`/`"org"`), wypełniana leniwie przy odczycie `GET /metrics/trends` i `/metrics/org-trends`; bez kolumny `repo_id?` z briefu, patrz uwaga niżej |
 | 6 | sync refactor repos → PRs → reviews | ✅ `OrgSyncService` |
 | 7 | 5 KPI PR-flow | ✅ `core/services/pr_metrics.py` — wszystkie 5 formuł |
 | 8 | routes `/repositories`, `/pull-requests`, `/pull-requests/{id}`, dashboard KPI | ✅ (+ `/metrics/pr-dashboard`, `/metrics/pr-dashboard/members`) |
-| 9 | raport tygodniowy w formacie PR-flow z bottleneckami | ❌ raporty (`weekly_summary` itd.) liczą wyłącznie metryki task-owe |
+| 9 | raport tygodniowy w formacie PR-flow z bottleneckami | ✅ typ raportu `pr_flow_weekly` (`core/services/pr_metrics.py::get_pr_flow_report` + `core/services/report.py::_pr_flow_weekly`), migracja 0015 |
 | 10 | `sync_runs` tracking przy każdym syncu | ✅ |
 | 11 | ekran Repository list | ✅ `/repositories` |
-| 12 | ekran PR list z filtrami | ⚠️ filtry (status/author/repo) są; brak sortowania po wieku |
+| 12 | ekran PR list z filtrami | ✅ filtry (status/author/repo) + sortowanie po wieku (`sort=newest\|oldest`) |
 | 13 | ekran PR detail + reviews | ✅ `/pull-requests/:prId` |
 | 14 | dashboard z KPI PR-flow | ✅ `PRDashboardTab` |
 | 15 | `apps/web/.env.example` | ✅ |
 
-**13 z 15 luk zamkniętych.** Pozostają: raport tygodniowy w formacie PR-flow (pozycja 9) i
-sortowanie PR po wieku (pozycja 12, częściowo) — obie techniczne, niewielkie. `metric_snapshots`
-(pozycja 5) świadomie pominięte, zgodnie z adnotacją briefu, że tabela jest opcjonalna dla MVP.
+**15 z 15 luk zamkniętych.** Pozycja 9 (raport PR-flow z bottleneckami) i 12 (sortowanie PR po
+wieku) zamknięte 2026-08-11 na branchu `feature/audit-gaps-and-task-completed-at`.
+`metric_snapshots` (pozycja 5), ostatnia świadomie odłożona jako opcjonalna dla MVP, domknięta
+2026-08-16 na branchu `feature/metric-snapshots` — bez kolumny `repo_id?` ze szkicu briefu, bo
+żaden dzisiejszy KPI nie jest liczony per-repozytorium i nic by jej nie czytało; dodanie nullable
+kolumny później byłoby małą migracją, gdyby taka potrzeba się pojawiła.
 
 Rozbieżności architektoniczne z tabeli wyżej pozostają bez zmian i są świadomym wyborem
 (multi-org zamiast single-org, role `owner/admin/member`, JWT bearer + httpOnly refresh cookie
@@ -172,9 +175,8 @@ zamiast czysto cookie-based, Vite SPA zamiast Next.js) — żadna nie blokuje fu
 
 ### Zaktualizowany werdykt
 
-Projekt jest **technicznie kompletny jako narzędzie produktywności developera** i **w ~85%
-kompletny jako narzędzie GitHub PR-flow analytics** (13 z 15 luk zamkniętych; pozostałe 2 to
-drobne braki, nie brakujące domeny). Produkt jest dziś funkcjonalnym nadzbiorem obu briefów —
-serwuje jednocześnie produktywność (projekty/taski/timer/metryki) i analitykę PR (repo tracking/PR
-sync/5 KPI PR-flow), pod jednym API i jednym UI. Domknięcie pozycji 9 i 12 to decyzja produktowa,
-nie blokada techniczna.
+Projekt jest **technicznie kompletny zarówno jako narzędzie produktywności developera, jak i jako
+narzędzie GitHub PR-flow analytics** (15 z 15 luk zamkniętych; `metric_snapshots` świadomie poza
+zakresem MVP). Produkt jest funkcjonalnym nadzbiorem obu briefów — serwuje jednocześnie
+produktywność (projekty/taski/timer/metryki) i analitykę PR (repo tracking/PR sync/5 KPI PR-flow +
+raport tygodniowy z bottleneckami), pod jednym API i jednym UI.

@@ -8,16 +8,23 @@ import {
 } from "@/shared/ui";
 import { useGenerateReport } from "@/features/reports/hooks/useReportMutations";
 import { useProjectsQuery } from "@/features/projects/hooks/useProjectsQuery";
+import { useOrgStore } from "@/shared/store/orgStore";
 
 const REPORT_TYPES = [
   { value: "weekly_summary", label: "Podsumowanie tygodniowe" },
   { value: "project_status", label: "Status projektu" },
   { value: "productivity_overview", label: "Przegląd produktywności" },
+  { value: "pr_flow_weekly", label: "Tygodniowy PR-flow" },
 ] as const;
 
 export const GenerateSchema = z
   .object({
-    type: z.enum(["weekly_summary", "project_status", "productivity_overview"]),
+    type: z.enum([
+      "weekly_summary",
+      "project_status",
+      "productivity_overview",
+      "pr_flow_weekly",
+    ]),
     project_id: z.string().optional(),
   })
   .refine((d) => d.type !== "project_status" || !!d.project_id, {
@@ -34,6 +41,7 @@ interface Props {
 export function GenerateReportModal({ open, onClose }: Props) {
   const generateReport = useGenerateReport();
   const { data: projects } = useProjectsQuery();
+  const activeOrgId = useOrgStore((s) => s.activeOrgId);
 
   const {
     handleSubmit,
@@ -48,10 +56,17 @@ export function GenerateReportModal({ open, onClose }: Props) {
 
   const reportType = watch("type");
   const needsProject = reportType === "project_status";
+  const needsOrg = reportType === "pr_flow_weekly";
+  const orgMissing = needsOrg && !activeOrgId;
 
   function onSubmit(data: GenerateData) {
     generateReport.mutate(
-      { type: data.type, format: "json", project_id: data.project_id },
+      {
+        type: data.type,
+        format: "json",
+        project_id: data.project_id,
+        organization_id: needsOrg ? (activeOrgId ?? undefined) : undefined,
+      },
       {
         onSuccess: () => {
           reset();
@@ -108,11 +123,17 @@ export function GenerateReportModal({ open, onClose }: Props) {
             </div>
           )}
 
+          {orgMissing && (
+            <p className="text-sm text-red-500">
+              Wybierz aktywną organizację, aby wygenerować ten raport.
+            </p>
+          )}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>
               Anuluj
             </Button>
-            <Button type="submit" disabled={generateReport.isPending}>
+            <Button type="submit" disabled={generateReport.isPending || orgMissing}>
               {generateReport.isPending ? "Generowanie..." : "Generuj"}
             </Button>
           </DialogFooter>

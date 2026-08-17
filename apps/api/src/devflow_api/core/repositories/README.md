@@ -73,7 +73,7 @@ async def soft_delete(org_id: UUID) -> None
 async def add_member(org_id: UUID, user_id: UUID, role: str) -> OrganizationMember
 async def get_member(org_id: UUID, user_id: UUID) -> OrganizationMember | None
 async def list_members(org_id: UUID) -> list[OrganizationMember]
-async def update_member_role(org_id: UUID, user_id: UUID, role: str) -> None
+async def update_member_role(member: OrganizationMember, *, role: str) -> OrganizationMember
 async def remove_member(org_id: UUID, user_id: UUID) -> None
 ```
 

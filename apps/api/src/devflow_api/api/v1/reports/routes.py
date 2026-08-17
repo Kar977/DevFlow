@@ -40,6 +40,7 @@ async def create_report(
         report_type=body.type,
         fmt=body.format,
         project_id=body.project_id,
+        organization_id=body.organization_id,
     )
     background_tasks.add_task(
         generator,

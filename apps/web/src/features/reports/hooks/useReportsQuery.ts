@@ -1,11 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/shared/api/client";
 
+export type ReportType =
+  | "weekly_summary"
+  | "project_status"
+  | "productivity_overview"
+  | "pr_flow_weekly";
+
 export interface Report {
   id: string;
-  type: "weekly_summary" | "project_status" | "productivity_overview";
+  type: ReportType;
   format: "json";
   status: "pending" | "generating" | "ready" | "failed";
+  organization_id?: string | null;
   payload?: unknown;
   error_message?: string | null;
   generated_at?: string | null;

@@ -21,16 +21,23 @@ from devflow_api.core.schemas.metrics import (
     PRDashboardMemberResponse,
     PRDashboardMembersResponse,
     PRDashboardResponse,
+    PRFlowBottlenecksResponse,
+    PRFlowReportResponse,
     PRTrendPointResponse,
     PRTrendsResponse,
+    SlowReviewBottleneckResponse,
+    StalePRBottleneckResponse,
 )
 from devflow_api.core.services.cache_aside import cached
 from devflow_api.core.services.org_access import require_member
+from devflow_api.core.services.period import as_utc as _ensure_aware
+from devflow_api.core.services.period import week_start as _week_start
 
 _STALE_THRESHOLD_DAYS = 5
 _VELOCITY_WINDOW_DAYS = 7
 _THROUGHPUT_WINDOW_DAYS = 7
 _DEFAULT_TRENDS_WEEKS = 12
+_BOTTLENECK_LIMIT = 5
 
 
 class PRMetricsService:
@@ -80,12 +87,82 @@ class PRMetricsService:
             org_id, author_login=author_login, limit=1000, offset=0
         )
         now = datetime.now(UTC)
+        window_start = now - timedelta(days=_VELOCITY_WINDOW_DAYS)
         return PRDashboardResponse(
-            stale_pr_count=_stale_pr_count(prs, now),
+            stale_pr_count=len(_stale_prs(prs, now)),
             time_to_first_review=_time_to_first_review(prs),
-            review_velocity=_review_velocity(prs, now),
-            weekly_throughput=_weekly_throughput(prs, now),
+            review_velocity=_review_velocity(prs, window_start, now),
+            weekly_throughput=_weekly_throughput(prs, window_start, now),
             review_ratio=_review_ratio(prs),
+        )
+
+    async def get_pr_flow_report(
+        self,
+        *,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        date_from: datetime | None,
+        date_to: datetime | None,
+    ) -> PRFlowReportResponse:
+        """Period-aware PR-flow KPIs + bottlenecks for the pr_flow_weekly report.
+
+        Unlike ``get_pr_dashboard`` (always "now"), every window here is
+        anchored to the explicit report period so the numbers match what the
+        report claims to cover. See ``PRFlowReportResponse`` field docs for
+        each KPI's exact window semantics.
+        """
+        await require_member(self._org_repo, org_id, user_id)
+        end = date_to or datetime.now(UTC)
+        start = date_from or (end - timedelta(days=_VELOCITY_WINDOW_DAYS))
+        prs = await self._pr_repo.list_for_org(org_id, limit=1000, offset=0)
+
+        stale = _stale_prs(prs, end)
+        slow = _slowest_first_review(prs, limit=_BOTTLENECK_LIMIT)
+        cohort = [
+            pr for pr in prs if start <= _ensure_aware(pr.created_at_github) <= end
+        ]
+
+        return PRFlowReportResponse(
+            period_from=start,
+            period_to=end,
+            stale_pr_count=len(stale),
+            time_to_first_review_h=_time_to_first_review(cohort),
+            review_velocity_h=_review_velocity(prs, start, end),
+            throughput=_weekly_throughput(prs, start, end),
+            review_ratio=_review_ratio(cohort),
+            bottlenecks=PRFlowBottlenecksResponse(
+                stale_open=[
+                    StalePRBottleneckResponse(
+                        number=pr.number,
+                        title=pr.title,
+                        author_login=pr.author_login,
+                        html_url=pr.html_url,
+                        age_days=round(
+                            (end - _ensure_aware(pr.created_at_github)).total_seconds()
+                            / 86400,
+                            1,
+                        ),
+                    )
+                    for pr in stale[:_BOTTLENECK_LIMIT]
+                ],
+                slowest_first_review=[
+                    SlowReviewBottleneckResponse(
+                        number=pr.number,
+                        title=pr.title,
+                        author_login=pr.author_login,
+                        html_url=pr.html_url,
+                        wait_hours=round(
+                            (
+                                _ensure_aware(pr.first_review_at)  # type: ignore[arg-type]
+                                - _ensure_aware(pr.created_at_github)
+                            ).total_seconds()
+                            / 3600,
+                            1,
+                        ),
+                    )
+                    for pr in slow
+                ],
+            ),
         )
 
     async def list_members(
@@ -143,14 +220,16 @@ class PRMetricsService:
         return _build_pr_trends(prs, now=datetime.now(UTC), weeks=weeks)
 
 
-def _stale_pr_count(prs: list[PullRequest], now: datetime) -> int:
+def _stale_prs(prs: list[PullRequest], now: datetime) -> list[PullRequest]:
+    """Open PRs older than the stale threshold, oldest first."""
     threshold = timedelta(days=_STALE_THRESHOLD_DAYS)
-    count = 0
-    for pr in prs:
-        age = now - _ensure_aware(pr.created_at_github)
-        if pr.state == "open" and age > threshold:
-            count += 1
-    return count
+
+    def _age(pr: PullRequest) -> timedelta:
+        return now - _ensure_aware(pr.created_at_github)
+
+    stale = [pr for pr in prs if pr.state == "open" and _age(pr) > threshold]
+    stale.sort(key=lambda pr: _ensure_aware(pr.created_at_github))
+    return stale
 
 
 def _time_to_first_review(prs: list[PullRequest]) -> float | None:
@@ -165,13 +244,14 @@ def _time_to_first_review(prs: list[PullRequest]) -> float | None:
     return total_hours / count if count else None
 
 
-def _review_velocity(prs: list[PullRequest], now: datetime) -> float | None:
-    window_start = now - timedelta(days=_VELOCITY_WINDOW_DAYS)
+def _review_velocity(
+    prs: list[PullRequest], window_start: datetime, window_end: datetime
+) -> float | None:
     total_hours = 0.0
     count = 0
     for pr in prs:
         first = pr.first_review_at
-        if first is not None and _ensure_aware(first) >= window_start:
+        if first is not None and window_start <= _ensure_aware(first) <= window_end:
             total_hours += (
                 _ensure_aware(first) - _ensure_aware(pr.created_at_github)
             ).total_seconds() / 3600
@@ -179,14 +259,15 @@ def _review_velocity(prs: list[PullRequest], now: datetime) -> float | None:
     return total_hours / count if count else None
 
 
-def _weekly_throughput(prs: list[PullRequest], now: datetime) -> int:
-    window_start = now - timedelta(days=_THROUGHPUT_WINDOW_DAYS)
+def _weekly_throughput(
+    prs: list[PullRequest], window_start: datetime, window_end: datetime
+) -> int:
     count = 0
     for pr in prs:
         if (
             pr.state == "merged"
             and pr.merged_at is not None
-            and _ensure_aware(pr.merged_at) >= window_start
+            and window_start <= _ensure_aware(pr.merged_at) <= window_end
         ):
             count += 1
     return count
@@ -199,16 +280,17 @@ def _review_ratio(prs: list[PullRequest]) -> float | None:
     return reviewed / len(prs)
 
 
-def _ensure_aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
-
-
-def _week_start(moment: datetime) -> date:
-    """Monday of the ISO week containing *moment*, in UTC."""
-    day = _ensure_aware(moment).date()
-    return day - timedelta(days=day.weekday())
+def _slowest_first_review(prs: list[PullRequest], *, limit: int) -> list[PullRequest]:
+    """PRs with a first review, sorted by review wait descending."""
+    reviewed = [pr for pr in prs if pr.first_review_at is not None]
+    reviewed.sort(
+        key=lambda pr: (
+            _ensure_aware(pr.first_review_at)  # type: ignore[arg-type]
+            - _ensure_aware(pr.created_at_github)
+        ),
+        reverse=True,
+    )
+    return reviewed[:limit]
 
 
 def _build_pr_trends(

@@ -6,4 +6,6 @@ export { TimeTrackingPanel } from "./components/TimeTrackingPanel";
 export { CompletionRatePanel } from "./components/CompletionRatePanel";
 export { EstimationAccuracyPanel } from "./components/EstimationAccuracyPanel";
 export { StreakPanel } from "./components/StreakPanel";
+export { MetricTrendsPanel } from "./components/MetricTrendsPanel";
 export { useMetricsQueries } from "./hooks/useMetricsQueries";
+export { useMetricTrendsQuery } from "./hooks/useMetricTrendsQuery";

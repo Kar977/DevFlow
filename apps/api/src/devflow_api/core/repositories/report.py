@@ -20,9 +20,11 @@ class ReportRepository:
         user_id: uuid.UUID,
         report_type: str,
         fmt: str,
+        organization_id: uuid.UUID | None = None,
     ) -> Report:
         report = Report(
             user_id=user_id,
+            organization_id=organization_id,
             type=report_type,
             format=fmt,
             status="pending",

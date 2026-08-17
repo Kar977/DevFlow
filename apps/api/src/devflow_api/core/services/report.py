@@ -33,11 +33,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devflow_api.core.database import async_session_factory, get_session
 from devflow_api.core.errors import AppError
 from devflow_api.core.models.report import Report
+from devflow_api.core.repositories.github_connection import (
+    GitHubConnectionRepository,
+)
 from devflow_api.core.repositories.metrics import MetricsRepository
 from devflow_api.core.repositories.organization import OrganizationRepository
 from devflow_api.core.repositories.project import ProjectRepository
+from devflow_api.core.repositories.pull_request import PullRequestRepository
 from devflow_api.core.repositories.report import ReportRepository
+from devflow_api.core.repositories.user import UserRepository
 from devflow_api.core.services.metrics import MetricsService
+from devflow_api.core.services.org_access import require_member
+from devflow_api.core.services.pr_metrics import PRMetricsService
 from devflow_api.core.services.report_export import render_csv, render_pdf
 
 logger = logging.getLogger(__name__)
@@ -87,6 +94,18 @@ class ReportService:
                 status_code=status.HTTP_403_FORBIDDEN,
             )
 
+    async def _require_org_access(
+        self, *, organization_id: uuid.UUID, user_id: uuid.UUID
+    ) -> None:
+        """Raise 403 if user is not a member of the organization.
+
+        Only enforced when org_repo is injected (i.e. in the real service,
+        not in legacy tests that omit it) — mirrors ``_require_project_access``.
+        """
+        if self._org_repo is None:
+            return
+        await require_member(self._org_repo, organization_id, user_id)
+
     async def create_report(
         self,
         *,
@@ -94,6 +113,7 @@ class ReportService:
         report_type: str,
         fmt: str,
         project_id: uuid.UUID | None,
+        organization_id: uuid.UUID | None = None,
     ) -> Report:
         if report_type == "project_status" and project_id is None:
             raise AppError(
@@ -101,13 +121,24 @@ class ReportService:
                 message="project_id is required for project_status reports.",
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             )
+        if report_type == "pr_flow_weekly" and organization_id is None:
+            raise AppError(
+                code="validation_error",
+                message="organization_id is required for pr_flow_weekly reports.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
         # Validate project access synchronously before enqueuing background work.
         if report_type == "project_status" and project_id is not None:
             await self._require_project_access(project_id=project_id, user_id=user_id)
+        if report_type == "pr_flow_weekly" and organization_id is not None:
+            await self._require_org_access(
+                organization_id=organization_id, user_id=user_id
+            )
         return await self._report_repo.create(
             user_id=user_id,
             report_type=report_type,
             fmt=fmt,
+            organization_id=organization_id,
         )
 
     async def get_report(
@@ -277,6 +308,14 @@ async def _do_generate_report(
                 project_repo=ProjectRepository(session),
                 org_repo=OrganizationRepository(session),
             )
+            # Org is read from the persisted row, not the Protocol params —
+            # keeps ReportGenerator's signature (and every test double) stable.
+            pr_metrics_service = PRMetricsService(
+                pr_repo=PullRequestRepository(session),
+                org_repo=OrganizationRepository(session),
+                conn_repo=GitHubConnectionRepository(session),
+                user_repo=UserRepository(session),
+            )
 
             try:
                 payload = await _generate_payload(
@@ -285,7 +324,9 @@ async def _do_generate_report(
                     date_from=date_from,
                     date_to=date_to,
                     project_id=project_id,
+                    organization_id=report.organization_id,
                     metrics=metrics_service,
+                    pr_metrics=pr_metrics_service,
                 )
                 await report_repo.update_status(
                     report,
@@ -313,6 +354,8 @@ async def _generate_payload(
     date_to: datetime | None,
     project_id: uuid.UUID | None,
     metrics: MetricsService,
+    organization_id: uuid.UUID | None = None,
+    pr_metrics: PRMetricsService | None = None,
 ) -> dict[str, Any]:
     """Compute the JSON payload for the given report type."""
     if report_type == "weekly_summary":
@@ -335,6 +378,18 @@ async def _generate_payload(
             user_id=user_id,
             project_id=project_id,
             metrics=metrics,
+        )
+    if report_type == "pr_flow_weekly":
+        if organization_id is None or pr_metrics is None:
+            raise ValueError(
+                "organization_id and pr_metrics are required for pr_flow_weekly"
+            )
+        return await _pr_flow_weekly(
+            user_id=user_id,
+            organization_id=organization_id,
+            date_from=date_from,
+            date_to=date_to,
+            pr_metrics=pr_metrics,
         )
     raise ValueError(f"Unknown report type: {report_type}")
 
@@ -431,3 +486,20 @@ async def _project_status(
         "overdue_rate": result.overdue_rate,
         "health": result.health,
     }
+
+
+async def _pr_flow_weekly(
+    *,
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    pr_metrics: PRMetricsService,
+) -> dict[str, Any]:
+    result = await pr_metrics.get_pr_flow_report(
+        org_id=organization_id,
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return result.model_dump(mode="json")

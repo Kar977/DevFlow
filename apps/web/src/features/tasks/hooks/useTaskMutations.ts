@@ -11,6 +11,7 @@ export function useCreateTask(projectId: string) {
       priority?: string;
       estimate_minutes?: number;
       assignee_id?: string;
+      due_date?: string | null;
     }) => apiClient.post("/tasks", { ...data, project_id: projectId }).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: taskQueryKeys.all }),
   });
@@ -30,6 +31,7 @@ export function useUpdateTask() {
         status?: string;
         priority?: string;
         assignee_id?: string | null;
+        due_date?: string | null;
       };
     }) => apiClient.patch(`/tasks/${taskId}`, data).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: taskQueryKeys.all }),

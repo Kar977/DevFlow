@@ -226,6 +226,64 @@ for every member).
 
 ---
 
+### `GET /api/v1/metrics/trends`
+
+Long-range weekly history for the 4 productivity metrics (`tasks_completed`,
+`active_hours`, `completion_rate`, `estimation_ratio`), backed by persisted
+`metric_snapshots` rows for closed weeks — see `MetricSnapshotService`.
+Unlike `/velocity` etc. (always "current vs previous period"), this covers
+up to 104 weeks in one response.
+
+Query params: `weeks` — number of weekly points to return, default 26, 2–104
+(the horizon always includes the current, still-open week, computed live
+and never persisted).
+
+Response `200 OK` (see `MetricTrendsResponse` in
+`../../../core/schemas/metrics/__init__.py`):
+```json
+{
+  "period_from": "2025-08-04T00:00:00Z",
+  "period_to": "2026-01-31T10:00:00Z",
+  "weeks": 26,
+  "series": [
+    {
+      "metric_key": "tasks_completed",
+      "points": [
+        { "week_start": "2025-08-04", "value": 5.0 },
+        { "week_start": "2025-08-11", "value": 0.0 }
+      ]
+    }
+  ]
+}
+```
+
+`value: null` means "computed, no sample that week" (e.g. no task both
+estimated and worked on) — distinct from `0.0`, a metric that legitimately
+counted zero. Closed weeks are captured once and then immutable; a later
+edit to source data does not retroactively update an already-persisted
+week.
+
+---
+
+### `GET /api/v1/metrics/org-trends`
+
+Same long-range mechanism as `/trends`, for 4 of the 5 PR-flow KPIs
+(`pr_opened`, `pr_merged`, `review_velocity_h`, `review_ratio`).
+`stale_pr_count` is excluded — it's a point-in-time reading that can't be
+reconstructed for a past week from current data.
+
+Query params:
+- `organization_id` — required
+- `weeks` — default 26, 2–104
+
+For a shorter, always-live view (no persistence, ≤52 weeks) see
+`/pr-trends` above — the two endpoints intentionally overlap in what they
+cover; `/pr-trends` was not rewritten to read from snapshots because that
+would be a breaking response-shape change for no benefit to its existing
+caller (`PRDashboardTab`'s "Flow" charts).
+
+---
+
 ## Caching
 
 Metrics queries are expensive — aggregations over many rows. Results must be cached.
