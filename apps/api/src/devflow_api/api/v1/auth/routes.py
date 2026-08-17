@@ -153,5 +153,6 @@ async def update_me(
         user_id=uuid.UUID(subject.subject_id),
         full_name=body.full_name,
         avatar_url=body.avatar_url,
+        timezone=body.timezone,
     )
     return UserResponse.model_validate(user)

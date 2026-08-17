@@ -7,6 +7,7 @@ import {
   EstimationAccuracySchema,
   StreakSchema,
 } from "@/shared/api/schemas/metrics";
+import { metricsQueryKeys } from "./metricsQueryKeys";
 
 interface DateRange {
   date_from: string;
@@ -17,7 +18,7 @@ export function useMetricsQueries({ date_from, date_to }: DateRange) {
   const params = { date_from, date_to };
 
   const velocity = useQuery({
-    queryKey: ["metrics", "velocity", params],
+    queryKey: [...metricsQueryKeys.all, "velocity", params],
     queryFn: () =>
       apiClient
         .get("/metrics/velocity", { params })
@@ -25,7 +26,7 @@ export function useMetricsQueries({ date_from, date_to }: DateRange) {
   });
 
   const timeTracking = useQuery({
-    queryKey: ["metrics", "time-tracking", params],
+    queryKey: [...metricsQueryKeys.all, "time-tracking", params],
     queryFn: () =>
       apiClient
         .get("/metrics/time-tracking", { params })
@@ -33,7 +34,7 @@ export function useMetricsQueries({ date_from, date_to }: DateRange) {
   });
 
   const completionRate = useQuery({
-    queryKey: ["metrics", "completion-rate", params],
+    queryKey: [...metricsQueryKeys.all, "completion-rate", params],
     queryFn: () =>
       apiClient
         .get("/metrics/completion-rate", { params })
@@ -41,7 +42,7 @@ export function useMetricsQueries({ date_from, date_to }: DateRange) {
   });
 
   const estimationAccuracy = useQuery({
-    queryKey: ["metrics", "estimation-accuracy", params],
+    queryKey: [...metricsQueryKeys.all, "estimation-accuracy", params],
     queryFn: () =>
       apiClient
         .get("/metrics/estimation-accuracy", { params })
@@ -49,7 +50,7 @@ export function useMetricsQueries({ date_from, date_to }: DateRange) {
   });
 
   const streaks = useQuery({
-    queryKey: ["metrics", "streaks"],
+    queryKey: [...metricsQueryKeys.all, "streaks"],
     queryFn: () =>
       apiClient.get("/metrics/streaks").then((r) => StreakSchema.parse(r.data)),
   });

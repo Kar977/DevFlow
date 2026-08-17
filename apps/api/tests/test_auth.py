@@ -57,11 +57,16 @@ class FakeUserRepository:
         self,
         user: User,
         *,
-        full_name: str | None,
-        avatar_url: str | None,
+        full_name: str | None = None,
+        avatar_url: str | None = None,
+        timezone: str | None = None,
     ) -> User:
-        user.full_name = full_name
-        user.avatar_url = avatar_url
+        if full_name is not None:
+            user.full_name = full_name
+        if avatar_url is not None:
+            user.avatar_url = avatar_url
+        if timezone is not None:
+            user.timezone = timezone
         return user
 
 
@@ -535,6 +540,57 @@ def test_update_me_changes_full_name(auth_client: TestClient) -> None:
     )
     assert resp.status_code == 200
     assert resp.json()["full_name"] == "Alice Dev"
+
+
+def test_register_leaves_timezone_unset(auth_client: TestClient) -> None:
+    resp = auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "tz-fresh@example.com", "password": "password1"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["timezone"] is None
+
+
+def test_update_me_persists_timezone(auth_client: TestClient) -> None:
+    auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "tz@example.com", "password": "password1"},
+    )
+    tokens = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "tz@example.com", "password": "password1"},
+    ).json()
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    resp = auth_client.patch(
+        "/api/v1/auth/me",
+        json={"timezone": "Europe/Warsaw"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["timezone"] == "Europe/Warsaw"
+
+    get_resp = auth_client.get("/api/v1/auth/me", headers=headers)
+    assert get_resp.json()["timezone"] == "Europe/Warsaw"
+
+
+def test_update_me_rejects_unknown_timezone(auth_client: TestClient) -> None:
+    auth_client.post(
+        "/api/v1/auth/register",
+        json={"email": "badtz@example.com", "password": "password1"},
+    )
+    tokens = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "badtz@example.com", "password": "password1"},
+    ).json()
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    resp = auth_client.patch(
+        "/api/v1/auth/me",
+        json={"timezone": "Mars/Phobos"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

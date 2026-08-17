@@ -8,22 +8,13 @@ import { StreakPanel } from "../components/StreakPanel";
 import { MetricTrendsPanel } from "../components/MetricTrendsPanel";
 import { useMetricsQueries } from "../hooks/useMetricsQueries";
 import { useMetricTrendsQuery } from "../hooks/useMetricTrendsQuery";
+import { daysAgoLocal, todayLocal } from "@/shared/lib/localDate";
 
 const DEFAULT_TRENDS_WEEKS = 26;
 
-function defaultDateTo() {
-  return new Date().toISOString().split("T")[0]!;
-}
-
-function defaultDateFrom() {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
-  return d.toISOString().split("T")[0]!;
-}
-
 export function MetricsDashboardPage() {
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom);
-  const [dateTo, setDateTo] = useState(defaultDateTo);
+  const [dateFrom, setDateFrom] = useState(() => daysAgoLocal(30));
+  const [dateTo, setDateTo] = useState(todayLocal);
   const [trendsWeeks, setTrendsWeeks] = useState(DEFAULT_TRENDS_WEEKS);
 
   const { velocity, timeTracking, completionRate, estimationAccuracy, streaks } = useMetricsQueries({

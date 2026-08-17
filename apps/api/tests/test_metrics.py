@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from devflow_api.core.models.organization_member import OrganizationMember
 from devflow_api.core.models.project import Project
 from devflow_api.core.models.task import Task
+from devflow_api.core.models.task_status_change import TaskStatusChange
+from devflow_api.core.models.user import User
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.metrics import MetricsService, get_metrics_service
@@ -67,6 +69,24 @@ def _session(
     )
 
 
+def _status_change(
+    *,
+    task_id: uuid.UUID,
+    from_status: str | None,
+    to_status: str,
+    changed_by: uuid.UUID | None,
+    changed_at: datetime,
+) -> TaskStatusChange:
+    return TaskStatusChange(
+        id=uuid.uuid4(),
+        task_id=task_id,
+        from_status=from_status,
+        to_status=to_status,
+        changed_by=changed_by,
+        changed_at=changed_at,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fake repositories
 # ---------------------------------------------------------------------------
@@ -107,6 +127,30 @@ class FakeProjectRepository:
             created_at=NOW,
             updated_at=NOW,
         )
+
+
+class FakeUserRepository:
+    def __init__(self, *, timezone: str | None = None) -> None:
+        self._timezone = timezone
+
+    async def get_by_id(self, user_id: uuid.UUID) -> User:
+        return User(
+            id=user_id,
+            email="user@example.com",
+            hashed_password="x",
+            timezone=self._timezone,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+
+
+class FakeTaskStatusChangeRepository:
+    def __init__(self) -> None:
+        self.rows: list[TaskStatusChange] = []
+
+    async def list_for_tasks(self, task_ids: list[uuid.UUID]) -> list[TaskStatusChange]:
+        wanted = set(task_ids)
+        return [r for r in self.rows if r.task_id in wanted]
 
 
 class FakeOrganizationRepository:
@@ -168,15 +212,30 @@ def org_repo(org_id: uuid.UUID, user_id: uuid.UUID) -> FakeOrganizationRepositor
 
 
 @pytest.fixture()
+def user_repo() -> FakeUserRepository:
+    """Default: no timezone set — every existing test keeps UTC bucketing."""
+    return FakeUserRepository(timezone=None)
+
+
+@pytest.fixture()
+def status_change_repo() -> FakeTaskStatusChangeRepository:
+    return FakeTaskStatusChangeRepository()
+
+
+@pytest.fixture()
 def service(
     metrics_repo: FakeMetricsRepository,
     project_repo: FakeProjectRepository,
     org_repo: FakeOrganizationRepository,
+    user_repo: FakeUserRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
 ) -> MetricsService:
     return MetricsService(
         metrics_repo=metrics_repo,  # type: ignore[arg-type]
         project_repo=project_repo,  # type: ignore[arg-type]
         org_repo=org_repo,  # type: ignore[arg-type]
+        user_repo=user_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
     )
 
 
@@ -283,8 +342,8 @@ def test_velocity_weekly_is_zero_filled_for_empty_weeks(
     response = client.get(
         "/api/v1/metrics/velocity",
         params={
-            "date_from": (NOW - timedelta(days=21)).isoformat(),
-            "date_to": NOW.isoformat(),
+            "date_from": (NOW - timedelta(days=21)).date().isoformat(),
+            "date_to": NOW.date().isoformat(),
         },
     )
     assert response.status_code == 200
@@ -495,4 +554,322 @@ def test_project_metrics_not_member_returns_403(
     foreign_project = uuid.uuid4()
     project_repo.seed_project(project_id=foreign_project, org_id=uuid.uuid4())
     response = client.get(f"/api/v1/metrics/projects/{foreign_project}")
+    assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Regression: a `date_to` of today must include work done today.
+#
+# Before this fix, `date_to="<today>"` resolved to midnight at the START of
+# today (a naive datetime coerced to UTC), so a session started minutes ago
+# fell *after* the window and silently vanished from every panel.
+# ---------------------------------------------------------------------------
+
+
+def test_time_tracking_date_to_today_includes_a_session_started_just_now(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    user_id: uuid.UUID,
+) -> None:
+    metrics_repo.user_sessions = [
+        _session(
+            user_id=user_id, started_at=NOW - timedelta(minutes=5), duration_minutes=40
+        )
+    ]
+    response = client.get(
+        "/api/v1/metrics/time-tracking",
+        params={"date_to": NOW.date().isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_hours"] > 0
+
+
+def test_summary_date_to_today_includes_a_task_completed_just_now(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    metrics_repo.user_tasks = [_task(status="done", completed_at=NOW)]
+    response = client.get(
+        "/api/v1/metrics/summary",
+        params={"date_to": NOW.date().isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["tasks_completed"]["value"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Half-open window: a task/session landing exactly on `start` must count
+# once, in the current period only — not double-counted into "previous".
+# ---------------------------------------------------------------------------
+
+
+def test_summary_task_completed_exactly_at_window_start_counts_once(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+) -> None:
+    date_from = (NOW - timedelta(days=10)).date()
+    date_to = NOW.date()
+    # Window start is local midnight of date_from; land a completion exactly
+    # there so it's a boundary case for the half-open comparison.
+    boundary = datetime.combine(date_from, datetime.min.time(), tzinfo=UTC)
+    metrics_repo.user_tasks = [_task(status="done", completed_at=boundary)]
+    response = client.get(
+        "/api/v1/metrics/summary",
+        params={"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tasks_completed"]["value"] == 1
+    assert body["tasks_completed"]["prev_value"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Timezone-aware bucketing
+# ---------------------------------------------------------------------------
+
+
+def test_time_tracking_buckets_by_local_date_not_utc_date(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    user_repo: FakeUserRepository,
+    user_id: uuid.UUID,
+) -> None:
+    """A Warsaw user's late-evening session (23:30 UTC = 01:30 CEST) must be
+    bucketed on the local day it happened, not the UTC day."""
+    user_repo._timezone = "Europe/Warsaw"
+    started_at = datetime(2026, 8, 16, 23, 30, tzinfo=UTC)
+    metrics_repo.user_sessions = [
+        _session(user_id=user_id, started_at=started_at, duration_minutes=30)
+    ]
+    response = client.get(
+        "/api/v1/metrics/time-tracking",
+        params={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    assert response.status_code == 200
+    daily = response.json()["daily"]
+    assert len(daily) == 1
+    assert daily[0]["day"] == "2026-08-17"
+
+
+def test_metrics_unset_timezone_behaves_like_utc(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    user_repo: FakeUserRepository,
+    user_id: uuid.UUID,
+) -> None:
+    """Deploy-safety regression: a user who never set a timezone (the
+    default for every pre-existing row) must bucket identically to UTC."""
+    user_repo._timezone = None
+    started_at = datetime(2026, 8, 16, 23, 30, tzinfo=UTC)
+    metrics_repo.user_sessions = [
+        _session(user_id=user_id, started_at=started_at, duration_minutes=30)
+    ]
+    response = client.get(
+        "/api/v1/metrics/time-tracking",
+        params={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    assert response.status_code == 200
+    daily = response.json()["daily"]
+    assert daily[0]["day"] == "2026-08-16"
+
+
+def test_metrics_garbage_stored_timezone_falls_back_to_utc(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    user_repo: FakeUserRepository,
+    user_id: uuid.UUID,
+) -> None:
+    """A corrupt/garbage stored timezone must degrade to UTC, never 500."""
+    user_repo._timezone = "Not/AZone"
+    metrics_repo.user_sessions = [
+        _session(
+            user_id=user_id, started_at=NOW - timedelta(hours=1), duration_minutes=15
+        )
+    ]
+    response = client.get("/api/v1/metrics/time-tracking")
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Cycle time (per-status dwell time + currently-stuck tasks)
+# ---------------------------------------------------------------------------
+
+
+def test_cycle_time_computes_average_hours_per_stage(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+) -> None:
+    task = _task(status="in_progress")
+    metrics_repo.project_tasks[project_id] = [task]
+
+    actor = uuid.uuid4()
+    t0 = NOW - timedelta(hours=10)
+    status_change_repo.rows = [
+        _status_change(
+            task_id=task.id,
+            from_status=None,
+            to_status="backlog",
+            changed_by=actor,
+            changed_at=t0,
+        ),
+        _status_change(
+            task_id=task.id,
+            from_status="backlog",
+            to_status="todo",
+            changed_by=actor,
+            changed_at=t0 + timedelta(hours=2),
+        ),
+        _status_change(
+            task_id=task.id,
+            from_status="todo",
+            to_status="in_progress",
+            changed_by=actor,
+            changed_at=t0 + timedelta(hours=7),
+        ),
+    ]
+
+    response = client.get(f"/api/v1/metrics/projects/{project_id}/cycle-time")
+    assert response.status_code == 200
+    stages = {s["status"]: s for s in response.json()["stages"]}
+    assert stages["backlog"] == {
+        "status": "backlog",
+        "average_hours": 2.0,
+        "sample_size": 1,
+    }
+    assert stages["todo"] == {"status": "todo", "average_hours": 5.0, "sample_size": 1}
+    # No completed transition out of in_progress yet — it's still open.
+    assert "in_progress" not in stages
+
+
+def test_cycle_time_excludes_backfilled_transition_from_average(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+) -> None:
+    """A task whose only history is the 0017 migration backfill (a synthetic
+    "backlog" creation row and a synthetic "-> done" row with
+    changed_by=None) must not have its whole pre-migration lifetime
+    misattributed as time spent in "backlog"."""
+    task = _task(status="done")
+    metrics_repo.project_tasks[project_id] = [task]
+    creator = uuid.uuid4()
+    t0 = NOW - timedelta(days=100)
+    status_change_repo.rows = [
+        _status_change(
+            task_id=task.id,
+            from_status=None,
+            to_status="backlog",
+            changed_by=creator,
+            changed_at=t0,
+        ),
+        _status_change(
+            task_id=task.id,
+            from_status=None,
+            to_status="done",
+            changed_by=None,  # the migration backfill's fingerprint
+            changed_at=t0 + timedelta(hours=100),
+        ),
+    ]
+
+    response = client.get(f"/api/v1/metrics/projects/{project_id}/cycle-time")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stages"] == []
+    assert body["stuck"] == []  # "done" is terminal — never stuck
+
+
+def test_cycle_time_stuck_lists_non_terminal_tasks_longest_first(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+) -> None:
+    task_a = _task(status="in_progress")
+    task_b = _task(status="review")
+    task_c = _task(status="done")
+    metrics_repo.project_tasks[project_id] = [task_a, task_b, task_c]
+    actor = uuid.uuid4()
+    # Anchored to a freshly captured instant, not the module-level NOW —
+    # that constant is captured once at import time, and by the time this
+    # test runs (possibly minutes into a full suite run) `datetime.now(UTC)`
+    # inside the service has drifted well past it, making an exact-hours
+    # assertion against NOW flaky.
+    request_time = datetime.now(UTC)
+    status_change_repo.rows = [
+        _status_change(
+            task_id=task_a.id,
+            from_status="todo",
+            to_status="in_progress",
+            changed_by=actor,
+            changed_at=request_time - timedelta(hours=10),
+        ),
+        _status_change(
+            task_id=task_b.id,
+            from_status="in_progress",
+            to_status="review",
+            changed_by=actor,
+            changed_at=request_time - timedelta(hours=30),
+        ),
+        _status_change(
+            task_id=task_c.id,
+            from_status="review",
+            to_status="done",
+            changed_by=actor,
+            changed_at=request_time - timedelta(hours=5),
+        ),
+    ]
+
+    response = client.get(f"/api/v1/metrics/projects/{project_id}/cycle-time")
+    assert response.status_code == 200
+    stuck = response.json()["stuck"]
+    assert [s["task_id"] for s in stuck] == [str(task_b.id), str(task_a.id)]
+    assert stuck[0]["status"] == "review"
+    # Small tolerance for the wall-clock gap between request_time (captured
+    # here) and datetime.now(UTC) (captured inside the service call above).
+    assert stuck[0]["hours_in_status"] == pytest.approx(30.0, abs=0.01)
+
+
+def test_cycle_time_stuck_capped_at_five(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+) -> None:
+    tasks = [_task(status="in_progress") for _ in range(7)]
+    metrics_repo.project_tasks[project_id] = tasks
+    actor = uuid.uuid4()
+    status_change_repo.rows = [
+        _status_change(
+            task_id=t.id,
+            from_status="todo",
+            to_status="in_progress",
+            changed_by=actor,
+            changed_at=NOW - timedelta(hours=i + 1),
+        )
+        for i, t in enumerate(tasks)
+    ]
+
+    response = client.get(f"/api/v1/metrics/projects/{project_id}/cycle-time")
+    assert response.status_code == 200
+    stuck = response.json()["stuck"]
+    assert len(stuck) == 5
+    hours = [s["hours_in_status"] for s in stuck]
+    assert hours == sorted(hours, reverse=True)
+
+
+def test_cycle_time_nonexistent_project_returns_404(client: TestClient) -> None:
+    response = client.get(f"/api/v1/metrics/projects/{uuid.uuid4()}/cycle-time")
+    assert response.status_code == 404
+
+
+def test_cycle_time_not_member_returns_403(
+    client: TestClient,
+    project_repo: FakeProjectRepository,
+) -> None:
+    foreign_project = uuid.uuid4()
+    project_repo.seed_project(project_id=foreign_project, org_id=uuid.uuid4())
+    response = client.get(f"/api/v1/metrics/projects/{foreign_project}/cycle-time")
     assert response.status_code == 403

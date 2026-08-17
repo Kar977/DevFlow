@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useOrgStore } from "@/shared/store/orgStore";
+import { useTaskFilterStore } from "@/shared/store/taskFilterStore";
 import { useTasksQuery } from "@/features/tasks/hooks/useTasksQuery";
-import { useProjectsQuery } from "@/features/projects/hooks/useProjectsQuery";
+import { useActiveProject } from "@/features/projects/hooks/useActiveProject";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { TaskCard } from "@/features/tasks/components/TaskCard";
 import { TaskFilters } from "@/features/tasks/components/TaskFilters";
@@ -20,21 +21,24 @@ import {
 
 export function TaskListPage() {
   const { activeOrgId } = useOrgStore();
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const statusFilter = useTaskFilterStore((s) => s.status);
+  const setStatusFilter = useTaskFilterStore((s) => s.setStatus);
+  const assigneeIdByOrg = useTaskFilterStore((s) => s.assigneeIdByOrg);
+  const setAssigneeInStore = useTaskFilterStore((s) => s.setAssignee);
+  const assigneeFilter = activeOrgId ? (assigneeIdByOrg[activeOrgId] ?? "") : "";
+  function setAssigneeFilter(assigneeId: string) {
+    if (activeOrgId) setAssigneeInStore(activeOrgId, assigneeId);
+  }
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [showCreate, setShowCreate] = useState(false);
 
-  const { data: projectsData } = useProjectsQuery();
+  const {
+    activeProjectId: selectedProjectId,
+    setActiveProject: setSelectedProjectId,
+    projects: projectsData,
+  } = useActiveProject();
   const { data: members } = useOrgMembersQuery(activeOrgId);
-
-  useEffect(() => {
-    if (!selectedProjectId && projectsData?.items.length) {
-      setSelectedProjectId(projectsData.items[0].id);
-    }
-  }, [projectsData, selectedProjectId]);
 
   const { data, isLoading } = useTasksQuery({
     project_id: selectedProjectId,
