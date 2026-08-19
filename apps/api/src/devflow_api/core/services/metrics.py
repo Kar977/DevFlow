@@ -53,6 +53,7 @@ from devflow_api.core.schemas.metrics import (
     WeeklyVelocityPointResponse,
 )
 from devflow_api.core.services.cache_aside import cached
+from devflow_api.core.services.org_access import resolve_metrics_subject
 from devflow_api.core.services.period import as_utc as _as_utc
 from devflow_api.core.services.period import local_date as _local_date
 from devflow_api.core.services.period import resolve_tz as _resolve_tz
@@ -242,17 +243,26 @@ class MetricsService:
         user_id: uuid.UUID,
         date_from: date | None = None,
         date_to: date | None = None,
+        organization_id: uuid.UUID | None = None,
+        member_user_id: uuid.UUID | None = None,
     ) -> SummaryResponse:
-        tz = await self._user_tz(user_id)
+        # Authorization must never be served from cache.
+        subject_id = await resolve_metrics_subject(
+            self._org_repo,
+            caller_id=user_id,
+            organization_id=organization_id,
+            member_user_id=member_user_id,
+        )
+        tz = await self._user_tz(subject_id)
         # "v2": key now carries the resolved zone name, so a timezone change
         # self-heals immediately instead of serving stale numbers for the
         # TTL — see _user_tz.
-        key = f"metrics:summary:v2:{user_id}:{tz}:{date_from}:{date_to}"
+        key = f"metrics:summary:v2:{subject_id}:{tz}:{date_from}:{date_to}"
         return await self._cached(
             key,
             SummaryResponse,
             lambda: self._compute_summary(
-                user_id=user_id, date_from=date_from, date_to=date_to, tz=tz
+                user_id=subject_id, date_from=date_from, date_to=date_to, tz=tz
             ),
         )
 
@@ -289,17 +299,25 @@ class MetricsService:
         user_id: uuid.UUID,
         date_from: date | None = None,
         date_to: date | None = None,
+        organization_id: uuid.UUID | None = None,
+        member_user_id: uuid.UUID | None = None,
     ) -> VelocityResponse:
+        subject_id = await resolve_metrics_subject(
+            self._org_repo,
+            caller_id=user_id,
+            organization_id=organization_id,
+            member_user_id=member_user_id,
+        )
         # Cache key is versioned ("v3": v2 added `weekly`, v3 adds the tz
         # name) because an incompatible blob from an older key format would
         # fail validation on read and 500 for up to the cache TTL.
-        tz = await self._user_tz(user_id)
-        key = f"metrics:velocity:v3:{user_id}:{tz}:{date_from}:{date_to}"
+        tz = await self._user_tz(subject_id)
+        key = f"metrics:velocity:v3:{subject_id}:{tz}:{date_from}:{date_to}"
         return await self._cached(
             key,
             VelocityResponse,
             lambda: self._compute_velocity(
-                user_id=user_id, date_from=date_from, date_to=date_to, tz=tz
+                user_id=subject_id, date_from=date_from, date_to=date_to, tz=tz
             ),
         )
 
@@ -360,14 +378,22 @@ class MetricsService:
         user_id: uuid.UUID,
         date_from: date | None = None,
         date_to: date | None = None,
+        organization_id: uuid.UUID | None = None,
+        member_user_id: uuid.UUID | None = None,
     ) -> TimeTrackingResponse:
-        tz = await self._user_tz(user_id)
-        key = f"metrics:time_tracking:v2:{user_id}:{tz}:{date_from}:{date_to}"
+        subject_id = await resolve_metrics_subject(
+            self._org_repo,
+            caller_id=user_id,
+            organization_id=organization_id,
+            member_user_id=member_user_id,
+        )
+        tz = await self._user_tz(subject_id)
+        key = f"metrics:time_tracking:v2:{subject_id}:{tz}:{date_from}:{date_to}"
         return await self._cached(
             key,
             TimeTrackingResponse,
             lambda: self._compute_time_tracking(
-                user_id=user_id, date_from=date_from, date_to=date_to, tz=tz
+                user_id=subject_id, date_from=date_from, date_to=date_to, tz=tz
             ),
         )
 
@@ -403,14 +429,22 @@ class MetricsService:
         user_id: uuid.UUID,
         date_from: date | None = None,
         date_to: date | None = None,
+        organization_id: uuid.UUID | None = None,
+        member_user_id: uuid.UUID | None = None,
     ) -> CompletionRateResponse:
-        tz = await self._user_tz(user_id)
-        key = f"metrics:completion_rate:v2:{user_id}:{tz}:{date_from}:{date_to}"
+        subject_id = await resolve_metrics_subject(
+            self._org_repo,
+            caller_id=user_id,
+            organization_id=organization_id,
+            member_user_id=member_user_id,
+        )
+        tz = await self._user_tz(subject_id)
+        key = f"metrics:completion_rate:v2:{subject_id}:{tz}:{date_from}:{date_to}"
         return await self._cached(
             key,
             CompletionRateResponse,
             lambda: self._compute_completion_rate(
-                user_id=user_id, date_from=date_from, date_to=date_to, tz=tz
+                user_id=subject_id, date_from=date_from, date_to=date_to, tz=tz
             ),
         )
 
@@ -445,14 +479,22 @@ class MetricsService:
         user_id: uuid.UUID,
         date_from: date | None = None,
         date_to: date | None = None,
+        organization_id: uuid.UUID | None = None,
+        member_user_id: uuid.UUID | None = None,
     ) -> EstimationAccuracyResponse:
-        tz = await self._user_tz(user_id)
-        key = f"metrics:estimation_accuracy:v2:{user_id}:{tz}:{date_from}:{date_to}"
+        subject_id = await resolve_metrics_subject(
+            self._org_repo,
+            caller_id=user_id,
+            organization_id=organization_id,
+            member_user_id=member_user_id,
+        )
+        tz = await self._user_tz(subject_id)
+        key = f"metrics:estimation_accuracy:v2:{subject_id}:{tz}:{date_from}:{date_to}"
         return await self._cached(
             key,
             EstimationAccuracyResponse,
             lambda: self._compute_estimation_accuracy(
-                user_id=user_id, date_from=date_from, date_to=date_to, tz=tz
+                user_id=subject_id, date_from=date_from, date_to=date_to, tz=tz
             ),
         )
 
@@ -503,13 +545,25 @@ class MetricsService:
             under_estimated_count=under,
         )
 
-    async def get_streaks(self, *, user_id: uuid.UUID) -> StreakResponse:
-        tz = await self._user_tz(user_id)
-        key = f"metrics:streaks:v2:{user_id}:{tz}"
+    async def get_streaks(
+        self,
+        *,
+        user_id: uuid.UUID,
+        organization_id: uuid.UUID | None = None,
+        member_user_id: uuid.UUID | None = None,
+    ) -> StreakResponse:
+        subject_id = await resolve_metrics_subject(
+            self._org_repo,
+            caller_id=user_id,
+            organization_id=organization_id,
+            member_user_id=member_user_id,
+        )
+        tz = await self._user_tz(subject_id)
+        key = f"metrics:streaks:v2:{subject_id}:{tz}"
         return await self._cached(
             key,
             StreakResponse,
-            lambda: self._compute_streaks(user_id=user_id, tz=tz),
+            lambda: self._compute_streaks(user_id=subject_id, tz=tz),
         )
 
     async def _compute_streaks(

@@ -45,12 +45,30 @@ function renderModal(task: Task, onClose = vi.fn()) {
   };
 }
 
+const sprintsFixture = {
+  data: [
+    {
+      number: 11,
+      start_date: "2026-08-05",
+      end_date: "2026-08-18",
+      is_current: true,
+    },
+    {
+      number: 12,
+      start_date: "2026-08-19",
+      end_date: "2026-09-01",
+      is_current: false,
+    },
+  ],
+};
+
 beforeEach(() => {
   useOrgStore.setState({ activeOrgId: "org-1" });
   server.use(
     http.get("*/organizations/org-1/members", () =>
       HttpResponse.json({ data: members })
-    )
+    ),
+    http.get("*/organizations/org-1/sprints", () => HttpResponse.json(sprintsFixture))
   );
 });
 
@@ -105,5 +123,51 @@ describe("TaskDetailModal", () => {
     await userEvent.click(screen.getByRole("button", { name: /zapisz/i }));
 
     await waitFor(() => expect(capturedBody.due_date).toBeNull());
+  });
+
+  it("sends sprint_start_date when the user picks a sprint", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.patch("*/tasks/task-1", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...baseTask, sprint_start_date: "2026-08-05" });
+      })
+    );
+
+    renderModal(baseTask);
+
+    await userEvent.click(await screen.findByRole("combobox", { name: "Sprint" }));
+    const option = await screen.findByRole("option", { name: /Sprint 11/ });
+    await userEvent.click(option);
+    await userEvent.click(screen.getByRole("button", { name: /zapisz/i }));
+
+    await waitFor(() =>
+      expect(capturedBody).toMatchObject({ sprint_start_date: "2026-08-05" })
+    );
+  });
+
+  it("does not resend an orphaned sprint_start_date when only another field is edited", async () => {
+    // The task's stored date isn't in the current sprint series — the org's
+    // cadence moved on since it was assigned. Renaming the task must not
+    // re-send that now-invalid date and trip the backend's sprint
+    // validation (see TaskService._validate_sprint_start_date).
+    const orphanedTask: Task = { ...baseTask, sprint_start_date: "2026-07-01" };
+    let capturedBody: Record<string, unknown> = {};
+    server.use(
+      http.patch("*/tasks/task-1", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(orphanedTask);
+      })
+    );
+
+    const { onClose } = renderModal(orphanedTask);
+
+    const titleInput = await screen.findByLabelText("Tytuł");
+    await userEvent.clear(titleInput);
+    await userEvent.type(titleInput, "Renamed");
+    await userEvent.click(screen.getByRole("button", { name: /zapisz/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(capturedBody).not.toHaveProperty("sprint_start_date");
   });
 });

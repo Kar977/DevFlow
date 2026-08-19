@@ -1,7 +1,7 @@
 """Pydantic schemas for the Tasks + Time Tracking module."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,8 @@ class CreateTaskRequest(BaseModel):
     assignee_id: uuid.UUID | None = None
     due_date: datetime | None = None
     github_pr_url: str | None = Field(default=None, max_length=1024)
+    # None (the default) means backlog — not assigned to any sprint.
+    sprint_start_date: date | None = None
 
 
 class UpdateTaskRequest(BaseModel):
@@ -31,6 +33,7 @@ class UpdateTaskRequest(BaseModel):
     assignee_id: uuid.UUID | None = None
     due_date: datetime | None = None
     github_pr_url: str | None = Field(default=None, max_length=1024)
+    sprint_start_date: date | None = None
 
 
 class TaskResponse(BaseModel):
@@ -48,6 +51,7 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    sprint_start_date: date | None
     tracked_seconds: int = 0
 
     model_config = {"from_attributes": True}

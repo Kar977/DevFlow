@@ -97,12 +97,19 @@ class FakeMetricsRepository:
         self.user_tasks: list[Task] = []
         self.user_sessions: list[WorkSession] = []
         self.project_tasks: dict[uuid.UUID, list[Task]] = {}
+        # Per-user overrides for the member-filter tests — falls back to the
+        # flat `user_tasks`/`user_sessions` lists above (what every existing
+        # single-user test populates) when a user id has no override seeded.
+        self.tasks_by_user: dict[uuid.UUID, list[Task]] = {}
+        self.sessions_by_user: dict[uuid.UUID, list[WorkSession]] = {}
+        self.task_calls: list[uuid.UUID] = []
 
     async def get_tasks_for_user(self, user_id: uuid.UUID) -> list[Task]:
-        return self.user_tasks
+        self.task_calls.append(user_id)
+        return self.tasks_by_user.get(user_id, self.user_tasks)
 
     async def get_work_sessions_for_user(self, user_id: uuid.UUID) -> list[WorkSession]:
-        return self.user_sessions
+        return self.sessions_by_user.get(user_id, self.user_sessions)
 
     async def get_tasks_for_project(self, project_id: uuid.UUID) -> list[Task]:
         return self.project_tasks.get(project_id, [])
@@ -162,12 +169,14 @@ class FakeOrganizationRepository:
     ) -> OrganizationMember | None:
         return self._members.get((org_id, user_id))
 
-    def seed_member(self, org_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    def seed_member(
+        self, org_id: uuid.UUID, user_id: uuid.UUID, role: str = "owner"
+    ) -> None:
         self._members[(org_id, user_id)] = OrganizationMember(
             id=uuid.uuid4(),
             org_id=org_id,
             user_id=user_id,
-            role="owner",
+            role=role,
             joined_at=NOW,
         )
 
@@ -873,3 +882,94 @@ def test_cycle_time_not_member_returns_403(
     project_repo.seed_project(project_id=foreign_project, org_id=uuid.uuid4())
     response = client.get(f"/api/v1/metrics/projects/{foreign_project}/cycle-time")
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Member filter (Produktywność tab) — GET /metrics/summary etc. gained
+# organization_id + member_user_id, mirroring the PR dashboard's "Członek"
+# filter: any member may view any other member's data (no owner/admin
+# gate), but only within the same org.
+# ---------------------------------------------------------------------------
+
+
+def test_summary_member_filter_returns_target_members_data(
+    client: TestClient,
+    metrics_repo: FakeMetricsRepository,
+    org_repo: FakeOrganizationRepository,
+    org_id: uuid.UUID,
+) -> None:
+    member_id = uuid.uuid4()
+    org_repo.seed_member(org_id, member_id, role="member")
+    # Caller's own data (would answer the request if the filter were
+    # ignored) vs. the target member's — deliberately different counts.
+    metrics_repo.user_tasks = [_task(status="done")]
+    metrics_repo.tasks_by_user[member_id] = [
+        _task(status="done"),
+        _task(status="done"),
+        _task(status="done"),
+    ]
+
+    response = client.get(
+        "/api/v1/metrics/summary",
+        params={"organization_id": str(org_id), "member_user_id": str(member_id)},
+    )
+    assert response.status_code == 200
+    assert response.json()["tasks_completed"]["value"] == 3
+    assert member_id in metrics_repo.task_calls
+
+
+def test_summary_member_user_id_without_organization_id_returns_422(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/v1/metrics/summary", params={"member_user_id": str(uuid.uuid4())}
+    )
+    assert response.status_code == 422
+
+
+def test_summary_member_user_id_outside_org_returns_403(
+    client: TestClient,
+    org_id: uuid.UUID,
+) -> None:
+    outsider_id = uuid.uuid4()  # never seeded as a member of org_id
+    response = client.get(
+        "/api/v1/metrics/summary",
+        params={"organization_id": str(org_id), "member_user_id": str(outsider_id)},
+    )
+    assert response.status_code == 403
+
+
+def test_summary_member_filter_works_for_plain_member_caller(
+    metrics_repo: FakeMetricsRepository,
+    org_repo: FakeOrganizationRepository,
+    project_repo: FakeProjectRepository,
+    user_repo: FakeUserRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    org_id: uuid.UUID,
+) -> None:
+    """No owner/admin gate: a plain member can view a teammate's data."""
+    caller_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    org_repo.seed_member(org_id, caller_id, role="member")
+    org_repo.seed_member(org_id, target_id, role="member")
+    metrics_repo.tasks_by_user[target_id] = [_task(status="done")]
+
+    service = MetricsService(
+        metrics_repo=metrics_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        user_repo=user_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
+    )
+    app = create_app()
+    app.dependency_overrides[get_metrics_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(caller_id)
+    )
+    with TestClient(app) as c:
+        response = c.get(
+            "/api/v1/metrics/summary",
+            params={"organization_id": str(org_id), "member_user_id": str(target_id)},
+        )
+    assert response.status_code == 200
+    assert response.json()["tasks_completed"]["value"] == 1

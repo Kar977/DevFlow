@@ -1,10 +1,10 @@
 """Task ORM model."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Final
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from devflow_api.core.database import Base
@@ -43,9 +43,25 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     created_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=False
     )
+    # NULL = backlog (not assigned to any sprint). Holds the sprint's start
+    # date under the organization's cadence, not an FK — sprints aren't a
+    # persisted entity (see core.services.period.sprint_series).
+    # TaskService validates on write that this is an actual sprint boundary;
+    # never re-validated on read, so a later cadence change can leave a task
+    # "orphaned" from its sprint without failing to load — see
+    # TaskService._validate_sprint_start_date.
+    sprint_start_date: Mapped[date | None] = mapped_column(Date)
 
     __table_args__ = (
         # Supports the org-wide "my overdue tasks" query (filter by
         # assignee_id, sort by due_date) — see TaskRepository.list_overdue_for_user.
         Index("ix_tasks_assignee_id_due_date", "assignee_id", "due_date"),
+        # Every task list/count query is already project-scoped, so this
+        # composite (not a standalone index on sprint_start_date) is what
+        # serves both the "tasks in this sprint" and "backlog" filters.
+        Index(
+            "ix_tasks_project_id_sprint_start_date",
+            "project_id",
+            "sprint_start_date",
+        ),
     )

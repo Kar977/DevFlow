@@ -32,6 +32,14 @@ class PullRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     created_at_github: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # GitHub's own "last updated" timestamp for the PR (commits, comments,
+    # label changes, etc.) — distinct from TimestampMixin's `updated_at`,
+    # which only reflects when *this row* was last written by a local sync
+    # and is therefore useless as an activity signal. Nullable + no backfill:
+    # existing rows before this column simply have no activity signal beyond
+    # `created_at_github` until their next sync. See PRMetricsService's
+    # `_stale_prs` for the read side.
+    updated_at_github: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

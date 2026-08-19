@@ -114,11 +114,53 @@ class CycleTimeResponse(BaseModel):
 
 
 class PRDashboardResponse(BaseModel):
+    """The Flow dashboard's KPI tile row for one org (optionally one member).
+
+    ``period_from``/``period_to`` is the window every cohort-based field
+    below is computed over — the org's current sprint (from its
+    ``organization_settings``) when the caller passes no explicit
+    ``date_from``/``date_to``, otherwise exactly what was asked for.
+    """
+
+    period_from: datetime
+    period_to: datetime
+    #: Open PRs with no activity (GitHub update or review) more recently
+    #: than ``stale_threshold_days`` ago. Point-in-time — not scoped to
+    #: ``period_from``/``period_to``, same reasoning as
+    #: ``MetricSnapshot``'s exclusion of this KPI from weekly history.
     stale_pr_count: int
+    #: The threshold ``stale_pr_count`` was computed with (from
+    #: ``organization_settings``, or the default when unconfigured) — carried
+    #: on the response so the UI can label the tile correctly without a
+    #: second request.
+    stale_threshold_days: int
+    #: Open PRs with zero reviews yet — the survivorship-bias counterpart to
+    #: ``time_to_first_review``, which silently excludes exactly these PRs
+    #: from its average. Also point-in-time.
+    awaiting_first_review: int
+    #: Mean hours from ``created_at_github`` to ``first_review_at``, over PRs
+    #: *opened* within ``period_from``/``period_to`` that have a review.
+    #: ``None`` when no PR in the cohort has been reviewed yet.
     time_to_first_review: float | None
+    #: Same metric over the immediately preceding window of equal length —
+    #: pairs with ``time_to_first_review`` for a delta on the tile.
+    time_to_first_review_prev: float | None
+    #: Mean review-wait hours over PRs whose *first review* landed in the
+    #: last 7 days — deliberately a fixed rolling window, independent of
+    #: ``period_from``/``period_to``; kept for parity with
+    #: ``/metrics/org-trends``' ``review_velocity_h`` series.
     review_velocity: float | None
+    #: PRs merged within ``period_from``/``period_to``.
     weekly_throughput: int
+    #: Share of the cohort (PRs opened in the window) that has any review —
+    #: ``None`` when the cohort is empty, distinct from ``0.0`` (cohort
+    #: non-empty, none reviewed yet).
     review_ratio: float | None
+    #: Size of the cohort ``time_to_first_review``/``review_ratio`` are
+    #: computed over — lets the UI show "(n/m)" instead of a bare percentage
+    #: that hides how small the sample is.
+    cohort_size: int
+    reviewed_in_cohort: int
 
 
 class PRDashboardMemberResponse(BaseModel):

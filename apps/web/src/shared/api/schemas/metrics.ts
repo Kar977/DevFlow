@@ -65,11 +65,18 @@ export const StreakSchema = z.object({
 });
 
 export const PRDashboardSchema = z.object({
+  period_from: z.string(),
+  period_to: z.string(),
   stale_pr_count: z.number(),
+  stale_threshold_days: z.number(),
+  awaiting_first_review: z.number(),
   time_to_first_review: z.number().nullable(),
+  time_to_first_review_prev: z.number().nullable(),
   review_velocity: z.number().nullable(),
   weekly_throughput: z.number(),
   review_ratio: z.number().nullable(),
+  cohort_size: z.number(),
+  reviewed_in_cohort: z.number(),
 });
 
 export const PRDashboardMemberSchema = z.object({

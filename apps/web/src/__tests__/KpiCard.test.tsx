@@ -26,4 +26,39 @@ describe("KpiCard", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
   });
+
+  it("renders null value as an em dash, never 0", () => {
+    render(<KpiCard title="Czas do 1. review (h)" value={null} />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
+  it("formats the value with formatValue when provided", () => {
+    render(
+      <KpiCard title="Czas do 1. review (h)" value={4.5} formatValue={(v) => `${v} h`} />
+    );
+    expect(screen.getByText("4.5 h")).toBeInTheDocument();
+  });
+
+  it("inverts delta color for lower-is-better metrics", () => {
+    // A positive delta (wait time went up) must read as a regression (red)
+    // when invertDelta is set — the opposite of the default polarity.
+    render(<KpiCard title="Czas do 1. review (h)" value={10} delta={20} invertDelta />);
+    const delta = screen.getByText("+20.0%");
+    expect(delta).toHaveClass("text-red-500");
+  });
+
+  it("keeps a negative delta green under invertDelta (wait time went down)", () => {
+    render(<KpiCard title="Czas do 1. review (h)" value={10} delta={-15} invertDelta />);
+    const delta = screen.getByText("-15.0%");
+    expect(delta).toHaveClass("text-green-500");
+  });
+
+  it("shows the hint as a native title attribute for a tooltip", () => {
+    render(<KpiCard title="Stale PRs" value={3} hint="Otwarte PR-y bez aktywności" />);
+    expect(screen.getByText("3").closest("[title]")).toHaveAttribute(
+      "title",
+      "Otwarte PR-y bez aktywności"
+    );
+  });
 });

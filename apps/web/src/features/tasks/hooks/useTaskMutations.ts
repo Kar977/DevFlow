@@ -22,6 +22,7 @@ export function useCreateTask(projectId: string) {
       estimate_minutes?: number;
       assignee_id?: string;
       due_date?: string | null;
+      sprint_start_date?: string | null;
     }) => apiClient.post("/tasks", { ...data, project_id: projectId }).then((r) => r.data),
     onSuccess: () => invalidateTaskAndMetricQueries(qc),
   });
@@ -42,6 +43,7 @@ export function useUpdateTask() {
         priority?: string;
         assignee_id?: string | null;
         due_date?: string | null;
+        sprint_start_date?: string | null;
       };
     }) => apiClient.patch(`/tasks/${taskId}`, data).then((r) => r.data),
     onSuccess: () => invalidateTaskAndMetricQueries(qc),

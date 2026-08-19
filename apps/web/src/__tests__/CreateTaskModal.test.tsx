@@ -83,6 +83,7 @@ describe("CreateTaskModal", () => {
           ],
         })
       ),
+      http.get("*/organizations/org-1/sprints", () => HttpResponse.json({ data: [] })),
       http.post("*/tasks", async ({ request }) => {
         capturedBody = await request.json();
         return HttpResponse.json(
@@ -146,5 +147,59 @@ describe("CreateTaskModal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(capturedBody.due_date).toBeTruthy();
     expect(fromDueDateIso(capturedBody.due_date as string)).toBe("2026-08-20");
+  });
+
+  it("defaults to Backlog — no sprint_start_date in the create payload", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    server.use(
+      http.post("*/tasks", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { id: "t1", title: "Fix bug", status: "todo", priority: "medium", project_id: "p1" },
+          { status: 201 }
+        );
+      })
+    );
+
+    const { onClose } = renderModal();
+
+    await userEvent.type(screen.getByLabelText(/tytuł/i), "Fix bug");
+    await userEvent.click(screen.getByRole("button", { name: /utwórz/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(capturedBody).not.toHaveProperty("sprint_start_date");
+  });
+
+  it("includes the selected sprint_start_date in the create payload", async () => {
+    useOrgStore.setState({ activeOrgId: "org-1" });
+    let capturedBody: Record<string, unknown> = {};
+    server.use(
+      http.get("*/organizations/org-1/members", () => HttpResponse.json({ data: [] })),
+      http.get("*/organizations/org-1/sprints", () =>
+        HttpResponse.json({
+          data: [
+            { number: 11, start_date: "2026-08-05", end_date: "2026-08-18", is_current: true },
+          ],
+        })
+      ),
+      http.post("*/tasks", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { id: "t1", title: "Fix bug", status: "todo", priority: "medium", project_id: "p1" },
+          { status: 201 }
+        );
+      })
+    );
+
+    const { onClose } = renderModal();
+
+    await userEvent.type(screen.getByLabelText(/tytuł/i), "Fix bug");
+    await userEvent.click(await screen.findByRole("combobox", { name: "Sprint" }));
+    const option = await screen.findByRole("option", { name: /Sprint 11/ });
+    await userEvent.click(option);
+    await userEvent.click(screen.getByRole("button", { name: /utwórz/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(capturedBody).toMatchObject({ sprint_start_date: "2026-08-05" });
   });
 });

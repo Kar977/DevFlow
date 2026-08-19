@@ -1,7 +1,7 @@
 """Task repository — database access for the Task aggregate."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ class TaskRepository:
         due_date: datetime | None,
         github_pr_url: str | None,
         created_by: uuid.UUID,
+        sprint_start_date: date | None = None,
     ) -> Task:
         task = Task(
             project_id=project_id,
@@ -39,6 +40,7 @@ class TaskRepository:
             due_date=due_date,
             github_pr_url=github_pr_url,
             created_by=created_by,
+            sprint_start_date=sprint_start_date,
         )
         self._session.add(task)
         await self._session.flush()
@@ -53,6 +55,8 @@ class TaskRepository:
         *,
         status: str | None = None,
         assignee_id: uuid.UUID | None = None,
+        # UNSET = no filter, None = backlog only, a date = that sprint only.
+        sprint: date | None | Unset = UNSET,
         limit: int,
         offset: int,
     ) -> list[Task]:
@@ -61,6 +65,12 @@ class TaskRepository:
             stmt = stmt.where(Task.status == status)
         if assignee_id is not None:
             stmt = stmt.where(Task.assignee_id == assignee_id)
+        if not isinstance(sprint, Unset):
+            stmt = stmt.where(
+                Task.sprint_start_date.is_(None)
+                if sprint is None
+                else Task.sprint_start_date == sprint
+            )
         stmt = stmt.order_by(Task.created_at.desc()).limit(limit).offset(offset)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
@@ -71,6 +81,7 @@ class TaskRepository:
         *,
         status: str | None = None,
         assignee_id: uuid.UUID | None = None,
+        sprint: date | None | Unset = UNSET,
     ) -> int:
         stmt = (
             select(func.count()).select_from(Task).where(Task.project_id == project_id)
@@ -79,6 +90,12 @@ class TaskRepository:
             stmt = stmt.where(Task.status == status)
         if assignee_id is not None:
             stmt = stmt.where(Task.assignee_id == assignee_id)
+        if not isinstance(sprint, Unset):
+            stmt = stmt.where(
+                Task.sprint_start_date.is_(None)
+                if sprint is None
+                else Task.sprint_start_date == sprint
+            )
         result = await self._session.execute(stmt)
         return result.scalar_one()
 
@@ -170,6 +187,7 @@ class TaskRepository:
         due_date: datetime | None | Unset = UNSET,
         github_pr_url: str | None | Unset = UNSET,
         completed_at: datetime | None | Unset = UNSET,
+        sprint_start_date: date | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
@@ -189,6 +207,8 @@ class TaskRepository:
             task.due_date = due_date
         if not isinstance(github_pr_url, Unset):
             task.github_pr_url = github_pr_url
+        if not isinstance(sprint_start_date, Unset):
+            task.sprint_start_date = sprint_start_date
         await self._session.flush()
         # `updated_at` is set by an onupdate=func.now() server-side default;
         # without a refresh the attribute stays expired and a later sync

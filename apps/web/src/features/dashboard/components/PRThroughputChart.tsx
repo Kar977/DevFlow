@@ -49,7 +49,7 @@ export function PRThroughputChart({ data, isLoading }: Props) {
             {...axisProps(palette.chrome.axis)}
           />
           <YAxis allowDecimals={false} {...axisProps(palette.chrome.axis)} />
-          <Tooltip content={<ChartTooltip />} />
+          <Tooltip content={<ChartTooltip labelFormatter={formatWeekLabel} />} />
           <Bar
             dataKey="opened"
             name="Otwarte"

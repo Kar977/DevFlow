@@ -1,21 +1,29 @@
 import { useState } from "react";
-import {
-  usePRDashboardMembersQuery,
-  usePRDashboardQuery,
-} from "../hooks/usePRDashboardQuery";
+import { usePRDashboardMembersQuery, usePRDashboardQuery } from "../hooks/usePRDashboardQuery";
 import { usePRTrendsQuery } from "../hooks/usePRTrendsQuery";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { KpiCard } from "./KpiCard";
+import { MemberFilter } from "./MemberFilter";
 import { PRThroughputChart } from "./PRThroughputChart";
 import { ReviewLatencyChart } from "./ReviewLatencyChart";
+import { formatHours, formatPercent } from "@/shared/charts/format";
+import type { DashboardWindow } from "../lib/period";
 
-export function PRDashboardTab() {
+interface Props {
+  /** The dashboard's shared period (see `DashboardPage`/`PeriodSelector`).
+   * Undefined while it's still resolving — the query stays disabled until
+   * then rather than falling back to some other window. */
+  window: DashboardWindow | undefined;
+}
+
+export function PRDashboardTab({ window }: Props) {
   const activeOrgId = useOrgStore((s) => s.activeOrgId);
   const [memberUserId, setMemberUserId] = useState<string>("");
 
   const { data, isLoading, isError } = usePRDashboardQuery(
     activeOrgId,
-    memberUserId || undefined
+    memberUserId || undefined,
+    window
   );
   const { data: members } = usePRDashboardMembersQuery(activeOrgId);
   const { data: trends, isLoading: trendsLoading } = usePRTrendsQuery(
@@ -23,7 +31,7 @@ export function PRDashboardTab() {
     memberUserId || undefined
   );
 
-  if (isLoading) {
+  if (isLoading || !window) {
     return <div className="p-4 text-muted-foreground">Ładowanie metryk PR...</div>;
   }
 
@@ -35,46 +43,60 @@ export function PRDashboardTab() {
     );
   }
 
+  // "Lower is better" for wait time — a delta computed the normal way
+  // (positive = up) would need inverting to read as green/red correctly;
+  // KpiCard's `invertDelta` handles that, this only computes the magnitude.
+  const ttfrDeltaPct =
+    data.time_to_first_review !== null &&
+    data.time_to_first_review_prev !== null &&
+    data.time_to_first_review_prev !== 0
+      ? ((data.time_to_first_review - data.time_to_first_review_prev) /
+          data.time_to_first_review_prev) *
+        100
+      : undefined;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <label htmlFor="pr-member-filter" className="text-sm text-muted-foreground">
-          Członek:
-        </label>
-        <select
-          id="pr-member-filter"
-          value={memberUserId}
-          onChange={(e) => setMemberUserId(e.target.value)}
-          className="rounded border border-border bg-background px-3 py-1.5 text-sm"
-        >
-          <option value="">Cały zespół</option>
-          {members?.items.map((m) => (
-            <option
-              key={m.user_id}
-              value={m.user_id}
-              disabled={m.github_login === null}
-            >
-              {m.display_name}
-              {m.github_login === null ? " (brak konta GitHub)" : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+      <MemberFilter
+        value={memberUserId}
+        onChange={setMemberUserId}
+        items={members?.items.map((m) => ({
+          user_id: m.user_id,
+          display_name: m.display_name,
+          disabled: m.github_login === null,
+          hint: m.github_login === null ? "brak konta GitHub" : undefined,
+        }))}
+      />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-        <KpiCard title="Stale PRs" value={data.stale_pr_count} />
+        <KpiCard
+          title="PR-y bez aktywności"
+          value={data.stale_pr_count}
+          hint={`Otwarte PR-y bez aktywności dłużej niż ${data.stale_threshold_days} dni (można zmienić w ustawieniach organizacji)`}
+        />
+        <KpiCard
+          title="Oczekuje na review"
+          value={data.awaiting_first_review}
+          hint="Otwarte PR-y, które nie dostały jeszcze żadnego review"
+        />
         <KpiCard
           title="Czas do 1. review (h)"
-          value={data.time_to_first_review ?? 0}
+          value={data.time_to_first_review}
+          delta={ttfrDeltaPct}
+          invertDelta
+          hint={`Średni czas do pierwszego review dla PR-ów otwartych w wybranym okresie (n=${data.cohort_size}); krócej = lepiej`}
+          formatValue={formatHours}
         />
         <KpiCard
-          title="Velocity review (h)"
-          value={data.review_velocity ?? 0}
+          title="Merged w okresie"
+          value={data.weekly_throughput}
+          hint="PR-y scalone w wybranym okresie"
         />
-        <KpiCard title="Merged w tyg." value={data.weekly_throughput} />
         <KpiCard
-          title="% z review"
-          value={data.review_ratio !== null ? Math.round(data.review_ratio * 100) : 0}
+          title="% PR-ów z review"
+          value={data.review_ratio !== null ? data.review_ratio * 100 : null}
+          hint={`${data.reviewed_in_cohort} z ${data.cohort_size} PR-ów otwartych w okresie ma choć jedno review`}
+          formatValue={formatPercent}
         />
       </div>
 

@@ -16,12 +16,18 @@ export interface Task {
   updated_at: string;
   completed_at?: string | null;
   tracked_seconds?: number;
+  /** null = backlog, a YYYY-MM-DD date = that sprint's start date. */
+  sprint_start_date?: string | null;
 }
 
 interface TasksParams {
   project_id: string;
   status?: string;
   assignee_id?: string;
+  /** Mutually exclusive with `backlog_only` — the backend prefers
+   * `backlog_only` if both are somehow sent. */
+  sprint_start_date?: string;
+  backlog_only?: boolean;
   limit?: number;
   offset?: number;
 }

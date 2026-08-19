@@ -1,5 +1,8 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Label } from "@/shared/ui";
 import { TASK_STATUS_LABELS } from "@/features/tasks/lib/taskStatusLabels";
+import { useOrgSprintsQuery } from "@/features/organizations/hooks/useOrgSprints";
+import { formatSprintLabel } from "@/features/organizations/lib/sprintFormat";
+import { useOrgStore } from "@/shared/store/orgStore";
 
 interface Member {
   user_id: string;
@@ -14,6 +17,9 @@ interface Props {
   members: Member[];
   overdueOnly: boolean;
   onOverdueOnlyChange: (overdueOnly: boolean) => void;
+  /** "" = all sprints, "backlog" = unassigned only, else a sprint start date. */
+  sprintFilter: string;
+  onSprintFilterChange: (sprintFilter: string) => void;
 }
 
 const STATUS_OPTIONS = [
@@ -22,6 +28,8 @@ const STATUS_OPTIONS = [
 ];
 
 const ALL_ASSIGNEES = "all";
+const ALL_SPRINTS = "__all__";
+const BACKLOG = "backlog";
 
 export function TaskFilters({
   status,
@@ -31,7 +39,11 @@ export function TaskFilters({
   members,
   overdueOnly,
   onOverdueOnlyChange,
+  sprintFilter,
+  onSprintFilterChange,
 }: Props) {
+  const activeOrgId = useOrgStore((s) => s.activeOrgId);
+  const { data: sprints } = useOrgSprintsQuery(activeOrgId, { back: 3, forward: 6 });
   return (
     <div className="flex items-center gap-4">
       <Select value={status} onValueChange={onStatusChange}>
@@ -59,6 +71,25 @@ export function TaskFilters({
           {members.map((m) => (
             <SelectItem key={m.user_id} value={m.user_id}>
               {m.display_name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={sprintFilter || ALL_SPRINTS}
+        onValueChange={(v) => onSprintFilterChange(v === ALL_SPRINTS ? "" : v)}
+      >
+        <SelectTrigger className="w-48" aria-label="Filtruj wg sprintu">
+          <SelectValue placeholder="Filtruj wg sprintu" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_SPRINTS}>Wszystkie sprinty</SelectItem>
+          <SelectItem value={BACKLOG}>Backlog</SelectItem>
+          {sprints?.map((sprint) => (
+            <SelectItem key={sprint.start_date} value={sprint.start_date}>
+              {formatSprintLabel(sprint)}
+              {sprint.is_current ? " · bieżący" : ""}
             </SelectItem>
           ))}
         </SelectContent>
