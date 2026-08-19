@@ -29,6 +29,12 @@ export function TaskListPage() {
   function setAssigneeFilter(assigneeId: string) {
     if (activeOrgId) setAssigneeInStore(activeOrgId, assigneeId);
   }
+  const sprintFilterByOrg = useTaskFilterStore((s) => s.sprintFilterByOrg);
+  const setSprintFilterInStore = useTaskFilterStore((s) => s.setSprintFilter);
+  const sprintFilter = activeOrgId ? (sprintFilterByOrg[activeOrgId] ?? "") : "";
+  function setSprintFilter(value: string) {
+    if (activeOrgId) setSprintFilterInStore(activeOrgId, value);
+  }
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -44,6 +50,9 @@ export function TaskListPage() {
     project_id: selectedProjectId,
     status: statusFilter === "all" ? undefined : statusFilter,
     assignee_id: assigneeFilter || undefined,
+    backlog_only: sprintFilter === "backlog" ? true : undefined,
+    sprint_start_date:
+      sprintFilter && sprintFilter !== "backlog" ? sprintFilter : undefined,
   });
 
   if (!activeOrgId) {
@@ -99,6 +108,8 @@ export function TaskListPage() {
         members={members ?? []}
         overdueOnly={overdueOnly}
         onOverdueOnlyChange={setOverdueOnly}
+        sprintFilter={sprintFilter}
+        onSprintFilterChange={setSprintFilter}
       />
 
       {isLoading && <p className="text-muted-foreground">Ładowanie...</p>}

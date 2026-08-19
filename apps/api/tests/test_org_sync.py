@@ -341,6 +341,8 @@ async def test_sync_upserts_prs_and_reviews() -> None:
     assert prs[9002].state == "open"
     assert prs[9001].repository_id == repo.id
     assert prs[9001].first_review_at is not None
+    # _pull() formats updated_at with second precision (no microseconds).
+    assert prs[9001].updated_at_github == _NOW.replace(microsecond=0)
     assert repo.last_synced_at is not None
     assert env.sync_run_repo.runs[0].status == "completed"
     assert env.sync_run_repo.runs[0].repos_synced == 1

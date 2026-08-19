@@ -10,11 +10,16 @@ import { persist } from "zustand/middleware";
 type TaskFilterState = {
   status: string;
   assigneeIdByOrg: Record<string, string>;
+  // "" = all sprints, "backlog" = unassigned only, else a sprint's start
+  // date — keyed per org like assigneeIdByOrg, since a sprint date only
+  // means something within the org it belongs to.
+  sprintFilterByOrg: Record<string, string>;
 };
 
 type TaskFilterActions = {
   setStatus: (status: string) => void;
   setAssignee: (orgId: string, assigneeId: string) => void;
+  setSprintFilter: (orgId: string, sprintFilter: string) => void;
 };
 
 export const useTaskFilterStore = create<TaskFilterState & TaskFilterActions>()(
@@ -22,10 +27,15 @@ export const useTaskFilterStore = create<TaskFilterState & TaskFilterActions>()(
     (set) => ({
       status: "all",
       assigneeIdByOrg: {},
+      sprintFilterByOrg: {},
       setStatus: (status) => set({ status }),
       setAssignee: (orgId, assigneeId) =>
         set((state) => ({
           assigneeIdByOrg: { ...state.assigneeIdByOrg, [orgId]: assigneeId },
+        })),
+      setSprintFilter: (orgId, sprintFilter) =>
+        set((state) => ({
+          sprintFilterByOrg: { ...state.sprintFilterByOrg, [orgId]: sprintFilter },
         })),
     }),
     { name: "devflow-task-filters" }

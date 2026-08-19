@@ -37,11 +37,17 @@ router = APIRouter()
 async def get_summary(
     date_from: date | None = None,
     date_to: date | None = None,
+    organization_id: uuid.UUID | None = Query(default=None),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> SummaryResponse:
     return await service.get_summary(
-        user_id=subject.user_id, date_from=date_from, date_to=date_to
+        user_id=subject.user_id,
+        date_from=date_from,
+        date_to=date_to,
+        organization_id=organization_id,
+        member_user_id=member_user_id,
     )
 
 
@@ -49,11 +55,17 @@ async def get_summary(
 async def get_velocity(
     date_from: date | None = None,
     date_to: date | None = None,
+    organization_id: uuid.UUID | None = Query(default=None),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> VelocityResponse:
     return await service.get_velocity(
-        user_id=subject.user_id, date_from=date_from, date_to=date_to
+        user_id=subject.user_id,
+        date_from=date_from,
+        date_to=date_to,
+        organization_id=organization_id,
+        member_user_id=member_user_id,
     )
 
 
@@ -65,11 +77,17 @@ async def get_velocity(
 async def get_time_tracking(
     date_from: date | None = None,
     date_to: date | None = None,
+    organization_id: uuid.UUID | None = Query(default=None),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> TimeTrackingResponse:
     return await service.get_time_tracking(
-        user_id=subject.user_id, date_from=date_from, date_to=date_to
+        user_id=subject.user_id,
+        date_from=date_from,
+        date_to=date_to,
+        organization_id=organization_id,
+        member_user_id=member_user_id,
     )
 
 
@@ -81,11 +99,17 @@ async def get_time_tracking(
 async def get_completion_rate(
     date_from: date | None = None,
     date_to: date | None = None,
+    organization_id: uuid.UUID | None = Query(default=None),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> CompletionRateResponse:
     return await service.get_completion_rate(
-        user_id=subject.user_id, date_from=date_from, date_to=date_to
+        user_id=subject.user_id,
+        date_from=date_from,
+        date_to=date_to,
+        organization_id=organization_id,
+        member_user_id=member_user_id,
     )
 
 
@@ -97,20 +121,32 @@ async def get_completion_rate(
 async def get_estimation_accuracy(
     date_from: date | None = None,
     date_to: date | None = None,
+    organization_id: uuid.UUID | None = Query(default=None),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> EstimationAccuracyResponse:
     return await service.get_estimation_accuracy(
-        user_id=subject.user_id, date_from=date_from, date_to=date_to
+        user_id=subject.user_id,
+        date_from=date_from,
+        date_to=date_to,
+        organization_id=organization_id,
+        member_user_id=member_user_id,
     )
 
 
 @router.get("/streaks", response_model=StreakResponse, summary="Activity streaks")
 async def get_streaks(
+    organization_id: uuid.UUID | None = Query(default=None),
+    member_user_id: uuid.UUID | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: MetricsService = Depends(get_metrics_service),
 ) -> StreakResponse:
-    return await service.get_streaks(user_id=subject.user_id)
+    return await service.get_streaks(
+        user_id=subject.user_id,
+        organization_id=organization_id,
+        member_user_id=member_user_id,
+    )
 
 
 @router.get(
@@ -149,13 +185,20 @@ async def get_cycle_time(
 async def get_pr_dashboard(
     organization_id: uuid.UUID = Query(...),
     member_user_id: uuid.UUID | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: PRMetricsService = Depends(get_pr_metrics_service),
 ) -> PRDashboardResponse:
+    """When both ``date_from``/``date_to`` are omitted, the window defaults
+    to the organization's current sprint (see ``organization_settings``, or
+    the plain Monday-anchored ISO week when no cadence is configured)."""
     return await service.get_pr_dashboard(
         org_id=organization_id,
         user_id=subject.user_id,
         member_user_id=member_user_id,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

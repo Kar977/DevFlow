@@ -3,6 +3,7 @@ import { useTaskTrackedSeconds } from "@/features/tasks/hooks/useTaskTrackedSeco
 import { formatTrackedTime } from "@/features/tasks/lib/trackedTime";
 import { formatDueDate, isOverdue } from "@/features/tasks/lib/dueDate";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
+import { formatSprintDate } from "@/features/organizations/lib/sprintFormat";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { TimerButton } from "./TimerButton";
 
@@ -69,6 +70,11 @@ export function TaskCard({ task, onClick }: Props) {
           )}
           {assignee && (
             <span className="text-xs text-muted-foreground">👤 {assignee.display_name}</span>
+          )}
+          {task.sprint_start_date && (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+              🏃 {formatSprintDate(task.sprint_start_date)}
+            </span>
           )}
         </div>
       </div>

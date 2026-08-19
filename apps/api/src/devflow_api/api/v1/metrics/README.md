@@ -190,6 +190,67 @@ Response `200 OK`:
 
 ---
 
+### `GET /api/v1/metrics/pr-dashboard`
+
+The Flow dashboard's 5 KPI tiles for one organization (optionally filtered to
+one member's authored PRs). Computed by `PRMetricsService.get_pr_dashboard`.
+
+Query params:
+- `organization_id` — required
+- `member_user_id` — optional, filters to one org member's authored PRs
+  (resolved to a GitHub login). The member must belong to the same org as
+  the caller — `403` if not, regardless of role; `404 member_not_linked` if
+  they're a member but never connected a GitHub account.
+- `date_from`, `date_to` — optional ISO dates. When **both** are omitted,
+  the window defaults to the organization's current sprint (see
+  `GET /organizations/{org_id}/settings`), or the plain Monday-anchored ISO
+  week when no cadence is configured.
+
+Response `200 OK` (see `PRDashboardResponse` in
+`../../../core/schemas/metrics/__init__.py` for the full field-by-field
+window semantics):
+```json
+{
+  "period_from": "2026-08-17T00:00:00Z",
+  "period_to": "2026-08-24T00:00:00Z",
+  "stale_pr_count": 3,
+  "stale_threshold_days": 5,
+  "awaiting_first_review": 2,
+  "time_to_first_review": 14.2,
+  "time_to_first_review_prev": 19.8,
+  "review_velocity": 9.1,
+  "weekly_throughput": 6,
+  "review_ratio": 0.71,
+  "cohort_size": 7,
+  "reviewed_in_cohort": 5
+}
+```
+
+Key semantics that differ by field:
+- `stale_pr_count` / `awaiting_first_review` are **point-in-time** — open
+  PRs read against "now", not scoped to `period_from`/`period_to`.
+  `stale_pr_count` measures inactivity (`max(created_at_github,
+  updated_at_github, first_review_at)`), not age — an old PR that was
+  reviewed yesterday is not stale.
+- `time_to_first_review`, `review_ratio`, `cohort_size`, `reviewed_in_cohort`
+  are computed over the **cohort** — PRs *opened* within
+  `period_from`/`period_to` — the same population `/pr-trends` and
+  `/org-trends` use, so this tile and those charts no longer disagree.
+  `time_to_first_review_prev` is the same metric over the immediately
+  preceding window of equal length, for a delta.
+- `review_velocity` is a **fixed rolling 7-day** window (PRs whose *first
+  review* landed in the last 7 days), independent of `period_from`/
+  `period_to` — kept for parity with `/org-trends`' `review_velocity_h`
+  series, which uses the same definition.
+- `weekly_throughput` (PRs merged) follows `period_from`/`period_to`, unlike
+  `review_velocity`.
+
+Cached like `/pr-trends`, keyed by `org_id + author_login + date_from +
+date_to + the org's cadence/threshold settings` — an admin changing the
+stale threshold or sprint cadence self-heals within one TTL.
+
+---
+
 ### `GET /api/v1/metrics/pr-trends`
 
 Weekly-bucketed GitHub PR flow for an organization — opened/merged counts
@@ -198,8 +259,9 @@ plus review-latency trend. Backs the Dashboard's "Flow" charts.
 Query params:
 - `organization_id` — required
 - `member_user_id` — optional, filters to one org member's authored PRs
-  (resolved to a GitHub login; 404 `member_not_linked` if that member has no
-  linked GitHub account)
+  (resolved to a GitHub login; must belong to the same org as the caller —
+  403 if not; 404 `member_not_linked` if that member has no linked GitHub
+  account)
 - `weeks` — number of ISO weeks to look back, default 12, 1–52
 
 Response `200 OK` (see `PRTrendsResponse` in

@@ -1,7 +1,7 @@
 """Task service — task lifecycle and time tracking within projects."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,11 @@ from devflow_api.core.repositories.task_status_change import (
 from devflow_api.core.repositories.work_session import WorkSessionRepository
 from devflow_api.core.schemas.tasks import ActiveSessionResponse
 from devflow_api.core.services.org_access import require_member
+from devflow_api.core.services.organization_settings import (
+    OrganizationSettingsService,
+    get_organization_settings_service,
+)
+from devflow_api.core.services.period import is_sprint_start
 from devflow_api.core.unset import UNSET, Unset
 
 
@@ -44,6 +49,7 @@ class TaskService:
         status_change_repo: TaskStatusChangeRepository,
         cache: CacheBackend | None = None,
         long_running_session_hours: int = 6,
+        settings_service: OrganizationSettingsService | None = None,
     ) -> None:
         self._task_repo = task_repo
         self._work_session_repo = work_session_repo
@@ -52,6 +58,11 @@ class TaskService:
         self._status_change_repo = status_change_repo
         self._cache = cache
         self._long_running_session_hours = long_running_session_hours
+        # Optional so existing test call sites that construct TaskService
+        # directly (without an org-settings double) keep working — sprint
+        # validation is simply skipped when unset, same escape hatch as
+        # PRMetricsService uses for its own settings_service dependency.
+        self._settings_service = settings_service
 
     async def _require_project_access(
         self, *, project_id: uuid.UUID, user_id: uuid.UUID
@@ -102,6 +113,40 @@ class TaskService:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             )
 
+    async def _validate_sprint_start_date(
+        self, *, sprint_start_date: date | None, org_id: uuid.UUID
+    ) -> None:
+        """Raise 422 when sprint_start_date is set but isn't an actual sprint
+        boundary under the org's current cadence.
+
+        Never called on read — only at the point a task's sprint assignment
+        is written — so a later cadence change can't turn an existing,
+        already-valid assignment into a load-time error. Skipped entirely
+        when no settings_service was wired in (see __init__).
+        """
+        if sprint_start_date is None or self._settings_service is None:
+            return
+        effective = await self._settings_service.get_effective(org_id)
+        if effective.sprint_anchor_date is None:
+            raise AppError(
+                code="sprint_not_configured",
+                message="This organization has no sprint cadence configured.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        if not is_sprint_start(
+            effective.sprint_anchor_date,
+            effective.sprint_length_days,
+            sprint_start_date,
+        ):
+            raise AppError(
+                code="invalid_sprint_start",
+                message=(
+                    "sprint_start_date must be the first day of a sprint "
+                    "under this organization's cadence."
+                ),
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+
     async def create_task(
         self,
         *,
@@ -114,11 +159,15 @@ class TaskService:
         assignee_id: uuid.UUID | None = None,
         due_date: datetime | None = None,
         github_pr_url: str | None = None,
+        sprint_start_date: date | None = None,
     ) -> Task:
         project = await self._require_project_access(
             project_id=project_id, user_id=user_id
         )
         await self._validate_assignee(assignee_id=assignee_id, org_id=project.org_id)
+        await self._validate_sprint_start_date(
+            sprint_start_date=sprint_start_date, org_id=project.org_id
+        )
         created = await self._task_repo.create(
             project_id=project_id,
             title=title,
@@ -129,6 +178,7 @@ class TaskService:
             due_date=due_date,
             github_pr_url=github_pr_url,
             created_by=user_id,
+            sprint_start_date=sprint_start_date,
         )
         # Read the initial status off the created row rather than hardcoding
         # it here — it's set by TaskRepository.create, not this method.
@@ -154,6 +204,8 @@ class TaskService:
         user_id: uuid.UUID,
         status: str | None = None,
         assignee_id: uuid.UUID | None = None,
+        # UNSET = no sprint filter, None = backlog only, a date = that sprint.
+        sprint: date | None | Unset = UNSET,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[tuple[Task, int]], int]:
@@ -162,6 +214,7 @@ class TaskService:
             project_id,
             status=status,
             assignee_id=assignee_id,
+            sprint=sprint,
             limit=limit,
             offset=offset,
         )
@@ -169,7 +222,7 @@ class TaskService:
             [t.id for t in tasks]
         )
         total = await self._task_repo.count_for_project(
-            project_id, status=status, assignee_id=assignee_id
+            project_id, status=status, assignee_id=assignee_id, sprint=sprint
         )
         return [(task, tracked.get(task.id, 0)) for task in tasks], total
 
@@ -209,6 +262,7 @@ class TaskService:
         assignee_id: uuid.UUID | None | Unset = UNSET,
         due_date: datetime | None | Unset = UNSET,
         github_pr_url: str | None | Unset = UNSET,
+        sprint_start_date: date | None | Unset = UNSET,
     ) -> Task:
         task, project = await self._get_accessible_task(
             task_id=task_id, user_id=user_id
@@ -216,6 +270,10 @@ class TaskService:
         if not isinstance(assignee_id, Unset):
             await self._validate_assignee(
                 assignee_id=assignee_id, org_id=project.org_id
+            )
+        if not isinstance(sprint_start_date, Unset):
+            await self._validate_sprint_start_date(
+                sprint_start_date=sprint_start_date, org_id=project.org_id
             )
         completed_at: datetime | None | Unset = UNSET
         transition: tuple[str | None, str, datetime] | None = None
@@ -237,6 +295,7 @@ class TaskService:
             due_date=due_date,
             github_pr_url=github_pr_url,
             completed_at=completed_at,
+            sprint_start_date=sprint_start_date,
         )
         if transition is not None:
             previous_status, new_status, changed_at = transition
@@ -334,6 +393,9 @@ class TaskService:
 def get_task_service(
     session: AsyncSession = Depends(get_session),
     cache: CacheBackend = Depends(get_cache),
+    settings_service: OrganizationSettingsService = Depends(
+        get_organization_settings_service
+    ),
 ) -> TaskService:
     return TaskService(
         task_repo=TaskRepository(session),
@@ -343,4 +405,5 @@ def get_task_service(
         status_change_repo=TaskStatusChangeRepository(session),
         cache=cache,
         long_running_session_hours=get_settings().long_running_session_hours,
+        settings_service=settings_service,
     )

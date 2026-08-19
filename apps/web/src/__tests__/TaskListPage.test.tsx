@@ -51,12 +51,17 @@ beforeEach(() => {
   localStorage.clear();
   useOrgStore.setState({ activeOrgId: "org1" });
   useProjectStore.setState({ activeProjectIdByOrg: {} });
-  useTaskFilterStore.setState({ status: "all", assigneeIdByOrg: {} });
+  useTaskFilterStore.setState({
+    status: "all",
+    assigneeIdByOrg: {},
+    sprintFilterByOrg: {},
+  });
   server.use(
     http.get("*/projects", () =>
       HttpResponse.json({ data: [project], meta: { total: 1, limit: 50, offset: 0 } })
     ),
-    http.get("*/organizations/org1/members", () => HttpResponse.json({ data: [] }))
+    http.get("*/organizations/org1/members", () => HttpResponse.json({ data: [] })),
+    http.get("*/organizations/org1/sprints", () => HttpResponse.json({ data: [] }))
   );
 });
 

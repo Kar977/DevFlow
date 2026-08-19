@@ -124,6 +124,7 @@ class OrgSyncService:
                 author_login=str((pr_data.get("user") or {}).get("login", "")),
                 state="merged" if merged_at else str(pr_data.get("state", "open")),
                 created_at_github=_parse_dt(str(pr_data["created_at"])),
+                updated_at_github=updated_at,
                 merged_at=merged_at,
                 closed_at=_parse_dt_opt(pr_data.get("closed_at")),
                 html_url=str(pr_data["html_url"]),

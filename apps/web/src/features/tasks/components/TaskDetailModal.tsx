@@ -11,6 +11,7 @@ import { useUpdateTask, useDeleteTask } from "@/features/tasks/hooks/useTaskMuta
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { toDueDateIso, fromDueDateIso } from "@/features/tasks/lib/dueDate";
+import { SprintSelect } from "@/features/tasks/components/SprintSelect";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -37,6 +38,8 @@ const UpdateSchema = z.object({
   priority: z.enum(["low", "medium", "high", "critical"]),
   assignee_id: z.string().nullable().optional(),
   due_date: z.string().optional(),
+  // "" = backlog, else the sprint's start date (YYYY-MM-DD).
+  sprint_start_date: z.string().optional(),
 });
 type UpdateData = z.infer<typeof UpdateSchema>;
 
@@ -61,7 +64,7 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
   const { data: members } = useOrgMembersQuery(activeOrgId);
   const creator = members?.find((m) => m.user_id === task.created_by);
 
-  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<UpdateData>({
+  const { register, handleSubmit, setValue, watch, formState: { errors, dirtyFields } } = useForm<UpdateData>({
     resolver: zodResolver(UpdateSchema),
     defaultValues: {
       title: task.title,
@@ -70,20 +73,31 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
       priority: task.priority,
       assignee_id: task.assignee_id ?? null,
       due_date: task.due_date ? fromDueDateIso(task.due_date) : "",
+      sprint_start_date: task.sprint_start_date ?? "",
     },
   });
 
   const currentStatus = watch("status");
   const currentPriority = watch("priority");
   const currentAssignee = watch("assignee_id");
+  const currentSprint = watch("sprint_start_date");
 
   function onSubmit(data: UpdateData) {
+    const { sprint_start_date, ...rest } = data;
     updateTask.mutate(
       {
         taskId: task.id,
         data: {
-          ...data,
+          ...rest,
           due_date: data.due_date ? toDueDateIso(data.due_date) : null,
+          // Only sent when the user actually touched this field — a task
+          // whose stored sprint_start_date no longer matches the org's
+          // current cadence (see OrgSprintsTab's warning) would otherwise
+          // get re-sent unchanged on every save and 422 on the sprint
+          // validation, even when editing something unrelated like the title.
+          ...(dirtyFields.sprint_start_date
+            ? { sprint_start_date: sprint_start_date || null }
+            : {}),
         },
       },
       { onSuccess: onClose }
@@ -177,6 +191,17 @@ export function TaskDetailModal({ task, open, onClose }: Props) {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="modal-due-date">Termin</Label>
             <Input id="modal-due-date" type="date" {...register("due_date")} />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="modal-sprint">Sprint</Label>
+            <SprintSelect
+              id="modal-sprint"
+              value={currentSprint ?? ""}
+              onChange={(v) =>
+                setValue("sprint_start_date", v, { shouldDirty: true })
+              }
+            />
           </div>
 
           <p className="text-xs text-muted-foreground">

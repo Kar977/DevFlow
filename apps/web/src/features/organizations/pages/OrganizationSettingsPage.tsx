@@ -4,6 +4,8 @@ import { useAuthStore } from "@/shared/store/authStore";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { OrgGeneralTab } from "@/features/organizations/components/OrgGeneralTab";
 import { OrgMembersTab } from "@/features/organizations/components/OrgMembersTab";
+import { OrgSprintsTab } from "@/features/organizations/components/OrgSprintsTab";
+import { OrgMetricsTab } from "@/features/organizations/components/OrgMetricsTab";
 import { GitHubIntegrationPage } from "@/features/github/pages/GitHubIntegrationPage";
 
 export function OrganizationSettingsPage() {
@@ -29,6 +31,8 @@ export function OrganizationSettingsPage() {
         <TabsList>
           <TabsTrigger value="general">Ogólne</TabsTrigger>
           <TabsTrigger value="members">Członkowie</TabsTrigger>
+          <TabsTrigger value="sprints">Sprinty</TabsTrigger>
+          <TabsTrigger value="metrics">Metryki</TabsTrigger>
           <TabsTrigger value="github">GitHub</TabsTrigger>
         </TabsList>
 
@@ -38,6 +42,14 @@ export function OrganizationSettingsPage() {
 
         <TabsContent value="members">
           <OrgMembersTab orgId={activeOrgId} currentUserId={currentUserId} />
+        </TabsContent>
+
+        <TabsContent value="sprints">
+          <OrgSprintsTab orgId={activeOrgId} isAdmin={isAdmin} />
+        </TabsContent>
+
+        <TabsContent value="metrics">
+          <OrgMetricsTab orgId={activeOrgId} isAdmin={isAdmin} />
         </TabsContent>
 
         <TabsContent value="github">

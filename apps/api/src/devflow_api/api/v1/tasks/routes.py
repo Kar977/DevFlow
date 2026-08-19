@@ -1,6 +1,7 @@
 """Task routes — task lifecycle and time tracking."""
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -16,7 +17,7 @@ from devflow_api.core.schemas.tasks import (
 )
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.task import TaskService, get_task_service
-from devflow_api.core.unset import UNSET
+from devflow_api.core.unset import UNSET, Unset
 
 router = APIRouter()
 
@@ -42,6 +43,7 @@ async def create_task(
         assignee_id=body.assignee_id,
         due_date=body.due_date,
         github_pr_url=body.github_pr_url,
+        sprint_start_date=body.sprint_start_date,
     )
     return TaskResponse.model_validate(task)
 
@@ -55,16 +57,26 @@ async def list_tasks(
     project_id: uuid.UUID,
     task_status: str | None = Query(default=None, alias="status"),
     assignee_id: uuid.UUID | None = None,
+    sprint_start_date: date | None = Query(default=None),
+    backlog_only: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     subject: AuthenticatedSubject = Depends(get_current_subject),
     service: TaskService = Depends(get_task_service),
 ) -> TaskListResponse:
+    # UNSET = no sprint filter (neither query param given); backlog_only
+    # wins over sprint_start_date if a caller sends both.
+    sprint: date | None | Unset = UNSET
+    if backlog_only:
+        sprint = None
+    elif sprint_start_date is not None:
+        sprint = sprint_start_date
     tasks, total = await service.list_tasks(
         project_id=project_id,
         user_id=subject.user_id,
         status=task_status,
         assignee_id=assignee_id,
+        sprint=sprint,
         limit=limit,
         offset=offset,
     )
@@ -149,6 +161,9 @@ async def update_task(
         assignee_id=body.assignee_id if "assignee_id" in fields else UNSET,
         due_date=body.due_date if "due_date" in fields else UNSET,
         github_pr_url=body.github_pr_url if "github_pr_url" in fields else UNSET,
+        sprint_start_date=body.sprint_start_date
+        if "sprint_start_date" in fields
+        else UNSET,
     )
     return TaskResponse.model_validate(task)
 

@@ -1,4 +1,4 @@
-"""PRMetricsService — computes the 5 GitHub PR-flow KPIs for an organization."""
+"""PRMetricsService — computes the GitHub PR-flow KPIs for an organization."""
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -10,6 +10,10 @@ from devflow_api.core.cache import CacheBackend, get_cache
 from devflow_api.core.config import get_settings
 from devflow_api.core.database import get_session
 from devflow_api.core.errors import AppError
+from devflow_api.core.models.organization_settings import (
+    DEFAULT_SPRINT_LENGTH_DAYS,
+    DEFAULT_STALE_PR_THRESHOLD_DAYS,
+)
 from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.repositories.github_connection import (
     GitHubConnectionRepository,
@@ -29,15 +33,30 @@ from devflow_api.core.schemas.metrics import (
     StalePRBottleneckResponse,
 )
 from devflow_api.core.services.cache_aside import cached
-from devflow_api.core.services.org_access import require_member
+from devflow_api.core.services.org_access import require_member, resolve_target_member
+from devflow_api.core.services.organization_settings import (
+    OrganizationSettingsService,
+    OrgMetricSettings,
+    get_organization_settings_service,
+)
 from devflow_api.core.services.period import as_utc as _ensure_aware
+from devflow_api.core.services.period import resolve_window
+from devflow_api.core.services.period import sprint_window as _sprint_window
 from devflow_api.core.services.period import week_start as _week_start
 
-_STALE_THRESHOLD_DAYS = 5
+# Rolling window for `review_velocity` — deliberately independent of the
+# dashboard's own selected period (sprint or custom range): it's a "how fast
+# is review happening right now" snapshot, also reused unchanged by
+# `MetricSnapshotService` for the weekly `review_velocity_h` history.
 _VELOCITY_WINDOW_DAYS = 7
-_THROUGHPUT_WINDOW_DAYS = 7
 _DEFAULT_TRENDS_WEEKS = 12
 _BOTTLENECK_LIMIT = 5
+# `list_for_org` pages in batches of this size until exhausted, rather than a
+# single `limit=1000` fetch — that used to silently truncate to the newest
+# 1000 PRs by `created_at_github DESC`, which for `stale_pr_count` in
+# particular drops exactly the oldest, most-stale PRs first: the ones the
+# metric exists to surface.
+_FETCH_BATCH_SIZE = 500
 
 
 class PRMetricsService:
@@ -49,6 +68,7 @@ class PRMetricsService:
         user_repo: UserRepository,
         cache: CacheBackend | None = None,
         ttl_seconds: int = 60,
+        settings_service: OrganizationSettingsService | None = None,
     ) -> None:
         self._pr_repo = pr_repo
         self._org_repo = org_repo
@@ -56,13 +76,41 @@ class PRMetricsService:
         self._user_repo = user_repo
         self._cache = cache
         self._ttl_seconds = ttl_seconds
+        # Optional: existing call sites (the `pr_flow_weekly` report, and
+        # every test that constructs this service directly) don't pass one
+        # and get today's hardcoded defaults via `_effective_settings` below
+        # — identical to their pre-cadence-settings behaviour.
+        self._settings_service = settings_service
+
+    async def _effective_settings(self, org_id: uuid.UUID) -> OrgMetricSettings:
+        if self._settings_service is not None:
+            return await self._settings_service.get_effective(org_id)
+        return OrgMetricSettings(
+            sprint_length_days=DEFAULT_SPRINT_LENGTH_DAYS,
+            sprint_anchor_date=None,
+            stale_pr_threshold_days=DEFAULT_STALE_PR_THRESHOLD_DAYS,
+        )
 
     async def _resolve_author_login(
-        self, member_user_id: uuid.UUID | None
+        self,
+        *,
+        org_id: uuid.UUID,
+        caller_id: uuid.UUID,
+        member_user_id: uuid.UUID | None,
     ) -> str | None:
+        """Authorize (caller + target both members of ``org_id``) and, when
+        a target is given, resolve their GitHub login for the author filter.
+
+        Subsumes the plain ``require_member(org_id, caller_id)`` check every
+        call site used to do separately — ``resolve_target_member`` always
+        performs it, even when ``member_user_id`` is ``None``.
+        """
+        target_id = await resolve_target_member(
+            self._org_repo, org_id, caller_id, member_user_id
+        )
         if member_user_id is None:
             return None
-        conn = await self._conn_repo.get_by_user_id(member_user_id)
+        conn = await self._conn_repo.get_by_user_id(target_id)
         if conn is None:
             raise AppError(
                 code="member_not_linked",
@@ -74,26 +122,123 @@ class PRMetricsService:
             )
         return conn.github_login
 
+    async def _fetch_all_prs(
+        self, org_id: uuid.UUID, author_login: str | None
+    ) -> list[PullRequest]:
+        """Every PR in scope, paging to exhaustion (see `_FETCH_BATCH_SIZE`)."""
+        prs: list[PullRequest] = []
+        offset = 0
+        while True:
+            batch = await self._pr_repo.list_for_org(
+                org_id,
+                author_login=author_login,
+                limit=_FETCH_BATCH_SIZE,
+                offset=offset,
+            )
+            prs.extend(batch)
+            if len(batch) < _FETCH_BATCH_SIZE:
+                break
+            offset += _FETCH_BATCH_SIZE
+        return prs
+
     async def get_pr_dashboard(
         self,
         *,
         org_id: uuid.UUID,
         user_id: uuid.UUID,
         member_user_id: uuid.UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> PRDashboardResponse:
-        await require_member(self._org_repo, org_id, user_id)
-        author_login = await self._resolve_author_login(member_user_id)
-        prs = await self._pr_repo.list_for_org(
-            org_id, author_login=author_login, limit=1000, offset=0
+        # Authorization must never be served from cache.
+        author_login = await self._resolve_author_login(
+            org_id=org_id, caller_id=user_id, member_user_id=member_user_id
         )
+        settings = await self._effective_settings(org_id)
+        # Cache key carries every input that changes the computed payload —
+        # including the org's cadence settings, so an admin changing the
+        # stale threshold or sprint cadence self-heals within one TTL
+        # instead of serving stale numbers for up to `ttl_seconds`.
+        key = (
+            f"pr_metrics:dashboard:v2:{org_id}:{author_login or 'all'}:"
+            f"{date_from}:{date_to}:{settings.stale_pr_threshold_days}:"
+            f"{settings.sprint_length_days}:{settings.sprint_anchor_date}"
+        )
+        return await cached(
+            self._cache,
+            key,
+            PRDashboardResponse,
+            self._ttl_seconds,
+            lambda: self._compute_pr_dashboard(
+                org_id=org_id,
+                author_login=author_login,
+                settings=settings,
+                date_from=date_from,
+                date_to=date_to,
+            ),
+        )
+
+    async def _compute_pr_dashboard(
+        self,
+        *,
+        org_id: uuid.UUID,
+        author_login: str | None,
+        settings: OrgMetricSettings,
+        date_from: date | None,
+        date_to: date | None,
+    ) -> PRDashboardResponse:
         now = datetime.now(UTC)
-        window_start = now - timedelta(days=_VELOCITY_WINDOW_DAYS)
+        if date_from is None and date_to is None:
+            # No explicit range -> the org's current sprint (or the plain
+            # Monday-anchored ISO week when no cadence is configured).
+            start, end = _sprint_window(
+                settings.sprint_anchor_date, settings.sprint_length_days, now
+            )
+        else:
+            start, end = resolve_window(
+                date_from, date_to, UTC, default_days=settings.sprint_length_days
+            )
+        prev_start = start - (end - start)
+
+        prs = await self._fetch_all_prs(org_id, author_login)
+        stale = _stale_prs(prs, now, threshold_days=settings.stale_pr_threshold_days)
+        # Cohort = PRs *opened* in the selected window — same population
+        # `get_pr_flow_report` and `/metrics/org-trends` already use for
+        # `time_to_first_review`/`review_ratio`, so this dashboard no longer
+        # disagrees with them (it used to average/ratio over the org's
+        # entire history instead).
+        cohort = [
+            pr for pr in prs if start <= _ensure_aware(pr.created_at_github) < end
+        ]
+        prev_cohort = [
+            pr
+            for pr in prs
+            if prev_start <= _ensure_aware(pr.created_at_github) < start
+        ]
+        awaiting = sum(
+            1 for pr in prs if pr.state == "open" and pr.first_review_at is None
+        )
+        velocity_window_start = now - timedelta(days=_VELOCITY_WINDOW_DAYS)
+
         return PRDashboardResponse(
-            stale_pr_count=len(_stale_prs(prs, now)),
-            time_to_first_review=_time_to_first_review(prs),
-            review_velocity=_review_velocity(prs, window_start, now),
-            weekly_throughput=_weekly_throughput(prs, window_start, now),
-            review_ratio=_review_ratio(prs),
+            period_from=start,
+            period_to=end,
+            stale_pr_count=len(stale),
+            stale_threshold_days=settings.stale_pr_threshold_days,
+            awaiting_first_review=awaiting,
+            time_to_first_review=_round_or_none(_time_to_first_review(cohort)),
+            time_to_first_review_prev=_round_or_none(
+                _time_to_first_review(prev_cohort)
+            ),
+            review_velocity=_round_or_none(
+                _review_velocity(prs, velocity_window_start, now)
+            ),
+            weekly_throughput=_weekly_throughput(prs, start, end),
+            review_ratio=_round_or_none(_review_ratio(cohort)),
+            cohort_size=len(cohort),
+            reviewed_in_cohort=sum(
+                1 for pr in cohort if pr.first_review_at is not None
+            ),
         )
 
     async def get_pr_flow_report(
@@ -112,11 +257,25 @@ class PRMetricsService:
         each KPI's exact window semantics.
         """
         await require_member(self._org_repo, org_id, user_id)
-        end = date_to or datetime.now(UTC)
-        start = date_from or (end - timedelta(days=_VELOCITY_WINDOW_DAYS))
-        prs = await self._pr_repo.list_for_org(org_id, limit=1000, offset=0)
+        settings = await self._effective_settings(org_id)
+        now = datetime.now(UTC)
+        if date_from is None and date_to is None:
+            # `end` stays "now" even when defaulting — only `start` comes
+            # from the sprint boundary. Using the *sprint's own* end here
+            # instead (which, mid-sprint, is in the future) would inflate
+            # every "age since X" reading below, `stale_pr_count` first and
+            # worst: a PR reviewed an hour ago would appear to have waited
+            # until a sprint end that hasn't happened yet.
+            start, _ = _sprint_window(
+                settings.sprint_anchor_date, settings.sprint_length_days, now
+            )
+            end = now
+        else:
+            end = date_to or now
+            start = date_from or (end - timedelta(days=settings.sprint_length_days))
+        prs = await self._fetch_all_prs(org_id, None)
 
-        stale = _stale_prs(prs, end)
+        stale = _stale_prs(prs, end, threshold_days=settings.stale_pr_threshold_days)
         slow = _slowest_first_review(prs, limit=_BOTTLENECK_LIMIT)
         cohort = [
             pr for pr in prs if start <= _ensure_aware(pr.created_at_github) <= end
@@ -196,8 +355,9 @@ class PRMetricsService:
         weeks: int = _DEFAULT_TRENDS_WEEKS,
     ) -> PRTrendsResponse:
         # Authorization must never be served from cache.
-        await require_member(self._org_repo, org_id, user_id)
-        author_login = await self._resolve_author_login(member_user_id)
+        author_login = await self._resolve_author_login(
+            org_id=org_id, caller_id=user_id, member_user_id=member_user_id
+        )
 
         # Cache key is scoped by org_id + author_login, not user_id — the
         # payload is identical for every member, so keying by user would
@@ -214,21 +374,37 @@ class PRMetricsService:
     async def _compute_pr_trends(
         self, org_id: uuid.UUID, author_login: str | None, weeks: int
     ) -> PRTrendsResponse:
-        prs = await self._pr_repo.list_for_org(
-            org_id, author_login=author_login, limit=1000, offset=0
-        )
+        prs = await self._fetch_all_prs(org_id, author_login)
         return _build_pr_trends(prs, now=datetime.now(UTC), weeks=weeks)
 
 
-def _stale_prs(prs: list[PullRequest], now: datetime) -> list[PullRequest]:
-    """Open PRs older than the stale threshold, oldest first."""
-    threshold = timedelta(days=_STALE_THRESHOLD_DAYS)
+def _stale_prs(
+    prs: list[PullRequest], now: datetime, *, threshold_days: int
+) -> list[PullRequest]:
+    """Open PRs with no activity more recently than *threshold_days* ago,
+    oldest-active first.
 
-    def _age(pr: PullRequest) -> timedelta:
-        return now - _ensure_aware(pr.created_at_github)
+    Activity is ``max(created_at_github, updated_at_github, first_review_at)``
+    — a PR that was opened long ago but actively reviewed yesterday is not
+    stale; one that's technically "young" but has sat untouched past the
+    threshold is. ``created_at_github`` is always a safe floor (a PR is
+    always at least as active as the moment it was opened) and covers rows
+    synced before ``updated_at_github`` existed (nullable, no backfill).
+    """
+    threshold = timedelta(days=threshold_days)
 
-    stale = [pr for pr in prs if pr.state == "open" and _age(pr) > threshold]
-    stale.sort(key=lambda pr: _ensure_aware(pr.created_at_github))
+    def _last_activity(pr: PullRequest) -> datetime:
+        candidates = [_ensure_aware(pr.created_at_github)]
+        if pr.updated_at_github is not None:
+            candidates.append(_ensure_aware(pr.updated_at_github))
+        if pr.first_review_at is not None:
+            candidates.append(_ensure_aware(pr.first_review_at))
+        return max(candidates)
+
+    stale = [
+        pr for pr in prs if pr.state == "open" and now - _last_activity(pr) > threshold
+    ]
+    stale.sort(key=_last_activity)
     return stale
 
 
@@ -352,6 +528,9 @@ def _round_or_none(value: float | None) -> float | None:
 def get_pr_metrics_service(
     session: AsyncSession = Depends(get_session),
     cache: CacheBackend = Depends(get_cache),
+    settings_service: OrganizationSettingsService = Depends(
+        get_organization_settings_service
+    ),
 ) -> PRMetricsService:
     settings = get_settings()
     return PRMetricsService(
@@ -361,4 +540,5 @@ def get_pr_metrics_service(
         user_repo=UserRepository(session),
         cache=cache,
         ttl_seconds=settings.metrics_cache_ttl_seconds,
+        settings_service=settings_service,
     )
