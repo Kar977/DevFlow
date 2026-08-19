@@ -1,20 +1,38 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/shared/api/client";
 import { SummarySchema, VelocitySchema } from "@/shared/api/schemas/metrics";
+import { daysAgoLocal, todayLocal } from "@/shared/lib/localDate";
+import { metricsQueryKeys } from "@/features/metrics/hooks/metricsQueryKeys";
+import type { DashboardWindow } from "../lib/period";
 
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0]!;
-}
-
-export function useDashboardData() {
-  const date_to = new Date().toISOString().split("T")[0]!;
-  const date_from = daysAgo(30);
-  const params = { date_from, date_to };
+/**
+ * @param window Overrides the default 30-day trailing window (e.g. with the
+ * dashboard's shared sprint period). Omitted entirely, callers keep today's
+ * behaviour unchanged — this is what makes the parameter optional rather
+ * than required.
+ * @param enabled Gates both queries — defaults to `true`. Pass `false` while
+ * `window` is still resolving so a fetch doesn't fire against the 30-day
+ * fallback for a caller that actually wants a different, not-yet-known
+ * window (the dashboard, waiting on the sprint series).
+ */
+export function useDashboardData(
+  organizationId?: string,
+  memberUserId?: string,
+  window?: DashboardWindow,
+  enabled = true
+) {
+  const date_to = window?.date_to ?? todayLocal();
+  const date_from = window?.date_from ?? daysAgoLocal(30);
+  const params = {
+    date_from,
+    date_to,
+    ...(organizationId ? { organization_id: organizationId } : {}),
+    ...(memberUserId ? { member_user_id: memberUserId } : {}),
+  };
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ["metrics", "summary", params],
+    queryKey: [...metricsQueryKeys.all, "summary", params],
+    enabled,
     queryFn: () =>
       apiClient
         .get("/metrics/summary", { params })
@@ -22,7 +40,8 @@ export function useDashboardData() {
   });
 
   const { data: velocity, isLoading: velocityLoading } = useQuery({
-    queryKey: ["metrics", "velocity", params],
+    queryKey: [...metricsQueryKeys.all, "velocity", params],
+    enabled,
     queryFn: () =>
       apiClient
         .get("/metrics/velocity", { params })
@@ -32,6 +51,6 @@ export function useDashboardData() {
   return {
     summary,
     velocity,
-    isLoading: summaryLoading || velocityLoading,
+    isLoading: !enabled || summaryLoading || velocityLoading,
   };
 }

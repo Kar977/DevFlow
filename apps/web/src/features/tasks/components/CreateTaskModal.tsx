@@ -20,6 +20,7 @@ import { useCreateTask } from "@/features/tasks/hooks/useTaskMutations";
 import { useOrgMembersQuery } from "@/features/organizations/hooks/useOrgMembers";
 import { useOrgStore } from "@/shared/store/orgStore";
 import { toDueDateIso } from "@/features/tasks/lib/dueDate";
+import { SprintSelect } from "@/features/tasks/components/SprintSelect";
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Niski" },
@@ -41,6 +42,8 @@ const CreateTaskSchema = z.object({
     .optional(),
   assignee_id: z.string().optional(),
   due_date: z.string().optional(),
+  // "" (the default, unset) = backlog, else the sprint's start date.
+  sprint_start_date: z.string().optional(),
 });
 type CreateTaskData = z.infer<typeof CreateTaskSchema>;
 
@@ -69,6 +72,7 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
 
   const currentPriority = watch("priority");
   const currentAssignee = watch("assignee_id");
+  const currentSprint = watch("sprint_start_date");
 
   function onSubmit(data: CreateTaskData) {
     createTask.mutate(
@@ -79,6 +83,7 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
         estimate_minutes: data.estimate_minutes,
         assignee_id: data.assignee_id,
         due_date: data.due_date ? toDueDateIso(data.due_date) : undefined,
+        sprint_start_date: data.sprint_start_date || undefined,
       },
       {
         onSuccess: () => {
@@ -159,6 +164,15 @@ export function CreateTaskModal({ open, onClose, projectId }: Props) {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="task-due-date">Termin</Label>
             <Input id="task-due-date" type="date" {...register("due_date")} />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="task-sprint">Sprint</Label>
+            <SprintSelect
+              id="task-sprint"
+              value={currentSprint ?? ""}
+              onChange={(v) => setValue("sprint_start_date", v)}
+            />
           </div>
 
           <div className="flex flex-col gap-1.5">

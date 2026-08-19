@@ -18,3 +18,6 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255))
     avatar_url: Mapped[str | None] = mapped_column(Text)
+    # IANA zone name (e.g. "Europe/Warsaw"). NULL means "unknown" and every
+    # consumer treats that as UTC — see devflow_api.core.services.period.
+    timezone: Mapped[str | None] = mapped_column(String(64))

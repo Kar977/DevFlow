@@ -24,6 +24,7 @@ export function ProfilePage() {
           <ProfileForm
             initialName={user.full_name ?? ""}
             initialAvatarUrl={user.avatar_url ?? ""}
+            initialTimezone={user.timezone}
             onSubmit={(data) => mutation.mutate(data)}
             isPending={mutation.isPending}
           />

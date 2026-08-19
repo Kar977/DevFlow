@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +15,7 @@ from devflow_api.core.models.task import OVERDUE_EXCLUDED_STATUSES, Task
 from devflow_api.core.models.task_status_change import TaskStatusChange
 from devflow_api.core.models.work_session import WorkSession
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
+from devflow_api.core.services.organization_settings import OrgMetricSettings
 from devflow_api.core.services.task import TaskService, get_task_service
 from devflow_api.core.unset import UNSET, Unset
 from devflow_api.main import create_app
@@ -86,6 +87,7 @@ class FakeTaskRepository:
         due_date: datetime | None,
         github_pr_url: str | None,
         created_by: uuid.UUID,
+        sprint_start_date: date | None = None,
     ) -> Task:
         now = datetime.now(UTC)
         task = Task(
@@ -102,6 +104,7 @@ class FakeTaskRepository:
             created_by=created_by,
             created_at=now,
             updated_at=now,
+            sprint_start_date=sprint_start_date,
         )
         self._tasks[task.id] = task
         return task
@@ -115,6 +118,7 @@ class FakeTaskRepository:
         *,
         status: str | None = None,
         assignee_id: uuid.UUID | None = None,
+        sprint: date | None | Unset = UNSET,
         limit: int,
         offset: int,
     ) -> list[Task]:
@@ -123,6 +127,8 @@ class FakeTaskRepository:
             items = [t for t in items if t.status == status]
         if assignee_id is not None:
             items = [t for t in items if t.assignee_id == assignee_id]
+        if not isinstance(sprint, Unset):
+            items = [t for t in items if t.sprint_start_date == sprint]
         return items[offset : offset + limit]
 
     async def count_for_project(
@@ -131,12 +137,15 @@ class FakeTaskRepository:
         *,
         status: str | None = None,
         assignee_id: uuid.UUID | None = None,
+        sprint: date | None | Unset = UNSET,
     ) -> int:
         items = [t for t in self._tasks.values() if t.project_id == project_id]
         if status is not None:
             items = [t for t in items if t.status == status]
         if assignee_id is not None:
             items = [t for t in items if t.assignee_id == assignee_id]
+        if not isinstance(sprint, Unset):
+            items = [t for t in items if t.sprint_start_date == sprint]
         return len(items)
 
     async def _overdue_for_user(
@@ -188,6 +197,7 @@ class FakeTaskRepository:
         due_date: datetime | None | Unset = UNSET,
         github_pr_url: str | None | Unset = UNSET,
         completed_at: datetime | None | Unset = UNSET,
+        sprint_start_date: date | None | Unset = UNSET,
     ) -> Task:
         if title is not None:
             task.title = title
@@ -207,6 +217,8 @@ class FakeTaskRepository:
             task.due_date = due_date
         if not isinstance(github_pr_url, Unset):
             task.github_pr_url = github_pr_url
+        if not isinstance(sprint_start_date, Unset):
+            task.sprint_start_date = sprint_start_date
         return task
 
     async def delete(self, task: Task) -> None:
@@ -316,6 +328,17 @@ class FakeWorkSessionRepository:
         return session
 
 
+class FakeOrganizationSettingsService:
+    """Mirrors the sliver of OrganizationSettingsService TaskService uses —
+    same pattern as test_pr_metrics.py's FakeSettingsService."""
+
+    def __init__(self, settings: OrgMetricSettings) -> None:
+        self._settings = settings
+
+    async def get_effective(self, org_id: uuid.UUID) -> OrgMetricSettings:
+        return self._settings
+
+
 class FakeTaskStatusChangeRepository:
     def __init__(self) -> None:
         self.records: list[TaskStatusChange] = []
@@ -408,6 +431,36 @@ def service(
     )
 
 
+def _service_with_cadence(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    *,
+    sprint_anchor_date: date | None,
+    sprint_length_days: int = 14,
+) -> TaskService:
+    """Same wiring as the `service` fixture, plus a settings_service so
+    `_validate_sprint_start_date` actually runs instead of being skipped."""
+    settings_service = FakeOrganizationSettingsService(
+        OrgMetricSettings(
+            sprint_length_days=sprint_length_days,
+            sprint_anchor_date=sprint_anchor_date,
+            stale_pr_threshold_days=5,
+        )
+    )
+    return TaskService(
+        task_repo=task_repo,  # type: ignore[arg-type]
+        work_session_repo=session_repo,  # type: ignore[arg-type]
+        project_repo=project_repo,  # type: ignore[arg-type]
+        org_repo=org_repo,  # type: ignore[arg-type]
+        status_change_repo=status_change_repo,  # type: ignore[arg-type]
+        long_running_session_hours=6,
+        settings_service=settings_service,  # type: ignore[arg-type]
+    )
+
+
 @pytest.fixture()
 def client(
     user_id: uuid.UUID,
@@ -420,6 +473,18 @@ def client(
     )
     with TestClient(app) as c:
         yield c
+
+
+def _client_for(user_id: uuid.UUID, service: TaskService) -> TestClient:
+    """Same wiring as the `client` fixture, but for a specific TaskService
+    instance — used by the sprint tests below, which each need their own
+    cadence via `_service_with_cadence`."""
+    app = create_app()
+    app.dependency_overrides[get_task_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(user_id)
+    )
+    return TestClient(app)
 
 
 def _make_task(
@@ -1551,3 +1616,389 @@ def test_stop_session_invalidates_user_metrics_cache(
     asyncio.run(svc.stop_session(task_id=task.id, user_id=user_id))
 
     assert asyncio.run(cache.get(key)) is None
+
+
+# ---------------------------------------------------------------------------
+# Tests — sprint assignment
+# ---------------------------------------------------------------------------
+
+
+def test_create_task_with_valid_sprint_boundary_returns_201(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.post(
+            "/api/v1/tasks",
+            json={
+                "project_id": str(project_id),
+                "title": "In sprint 1",
+                "sprint_start_date": "2026-08-05",
+            },
+        )
+    assert response.status_code == 201
+    assert response.json()["sprint_start_date"] == "2026-08-05"
+
+
+def test_create_task_with_non_boundary_sprint_date_returns_422(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.post(
+            "/api/v1/tasks",
+            # 2026-08-12 is mid-sprint, not a boundary.
+            json={
+                "project_id": str(project_id),
+                "title": "Mid-sprint",
+                "sprint_start_date": "2026-08-12",
+            },
+        )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_sprint_start"
+
+
+def test_create_task_with_sprint_date_but_no_cadence_returns_422(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=None,
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.post(
+            "/api/v1/tasks",
+            json={
+                "project_id": str(project_id),
+                "title": "X",
+                "sprint_start_date": "2026-08-05",
+            },
+        )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "sprint_not_configured"
+
+
+def test_create_task_without_sprint_field_is_backlog(
+    client: TestClient, project_id: uuid.UUID
+) -> None:
+    response = client.post(
+        "/api/v1/tasks",
+        json={"project_id": str(project_id), "title": "No sprint"},
+    )
+    assert response.status_code == 201
+    assert response.json()["sprint_start_date"] is None
+
+
+def test_update_task_moves_task_between_sprints(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    task = asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="t",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.patch(
+            f"/api/v1/tasks/{task.id}",
+            json={"sprint_start_date": "2026-08-19"},
+        )
+    assert response.status_code == 200
+    assert response.json()["sprint_start_date"] == "2026-08-19"
+
+
+def test_update_task_can_clear_sprint_to_backlog(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    task = asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="t",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.patch(
+            f"/api/v1/tasks/{task.id}", json={"sprint_start_date": None}
+        )
+    assert response.status_code == 200
+    assert response.json()["sprint_start_date"] is None
+
+
+def test_update_task_omitting_sprint_field_leaves_it_unchanged(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    task = asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="t",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.patch(f"/api/v1/tasks/{task.id}", json={"title": "Renamed"})
+    assert response.status_code == 200
+    assert response.json()["sprint_start_date"] == "2026-08-05"
+
+
+def test_update_task_after_cadence_change_does_not_revalidate_on_read(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """A task assigned under an old cadence keeps loading and listing fine
+    even after the org's cadence changes out from under it — validation
+    only ever runs at the point a sprint_start_date is written."""
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    task = asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="orphaned",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    # Cadence changes: new anchor makes 2026-08-05 no longer a boundary.
+    orphaning_svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 6),
+        sprint_length_days=14,
+    )
+    with _client_for(user_id, orphaning_svc) as client:
+        get_response = client.get(f"/api/v1/tasks/{task.id}")
+        assert get_response.status_code == 200
+        assert get_response.json()["sprint_start_date"] == "2026-08-05"
+
+        # Renaming (not touching sprint_start_date) must not 422 even though
+        # the stored date is no longer a valid boundary under the new cadence.
+        patch_response = client.patch(
+            f"/api/v1/tasks/{task.id}", json={"title": "still orphaned"}
+        )
+        assert patch_response.status_code == 200
+        assert patch_response.json()["sprint_start_date"] == "2026-08-05"
+
+
+def test_list_tasks_backlog_only_returns_unassigned(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    asyncio.run(
+        svc.create_task(project_id=project_id, user_id=user_id, title="backlog")
+    )
+    asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="in sprint",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.get(
+            "/api/v1/tasks",
+            params={"project_id": str(project_id), "backlog_only": "true"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 1
+    assert [t["title"] for t in body["data"]] == ["backlog"]
+
+
+def test_list_tasks_filtered_by_sprint_start_date(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="sprint 1",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="sprint 2",
+            sprint_start_date=date(2026, 8, 19),
+        )
+    )
+    asyncio.run(
+        svc.create_task(project_id=project_id, user_id=user_id, title="backlog")
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.get(
+            "/api/v1/tasks",
+            params={"project_id": str(project_id), "sprint_start_date": "2026-08-05"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 1
+    assert [t["title"] for t in body["data"]] == ["sprint 1"]
+
+
+def test_list_tasks_without_sprint_filter_returns_everything(
+    task_repo: FakeTaskRepository,
+    session_repo: FakeWorkSessionRepository,
+    project_repo: FakeProjectRepository,
+    org_repo: FakeOrganizationRepository,
+    status_change_repo: FakeTaskStatusChangeRepository,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    svc = _service_with_cadence(
+        task_repo,
+        session_repo,
+        project_repo,
+        org_repo,
+        status_change_repo,
+        sprint_anchor_date=date(2026, 8, 5),
+        sprint_length_days=14,
+    )
+    asyncio.run(
+        svc.create_task(
+            project_id=project_id,
+            user_id=user_id,
+            title="in sprint",
+            sprint_start_date=date(2026, 8, 5),
+        )
+    )
+    asyncio.run(
+        svc.create_task(project_id=project_id, user_id=user_id, title="backlog")
+    )
+    with _client_for(user_id, svc) as client:
+        response = client.get("/api/v1/tasks", params={"project_id": str(project_id)})
+    assert response.status_code == 200
+    assert response.json()["meta"]["total"] == 2

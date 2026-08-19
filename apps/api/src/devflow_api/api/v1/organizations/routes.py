@@ -2,8 +2,13 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
+from devflow_api.core.schemas.organization_settings import (
+    OrganizationSettingsResponse,
+    SprintListResponse,
+    UpdateOrganizationSettingsRequest,
+)
 from devflow_api.core.schemas.organizations import (
     CreateOrganizationRequest,
     InviteMemberRequest,
@@ -18,6 +23,10 @@ from devflow_api.core.security import AuthenticatedSubject, get_current_subject
 from devflow_api.core.services.organization import (
     OrganizationService,
     get_organization_service,
+)
+from devflow_api.core.services.organization_settings import (
+    OrganizationSettingsService,
+    get_organization_settings_service,
 )
 from devflow_api.core.unset import UNSET
 
@@ -175,3 +184,74 @@ async def update_member_role(
         target_user_id=user_id,
         role=body.role,
     )
+
+
+@router.get(
+    "/{org_id}/settings",
+    response_model=OrganizationSettingsResponse,
+    summary="Get the organization's metric cadence settings",
+)
+async def get_organization_settings(
+    org_id: uuid.UUID,
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: OrganizationSettingsService = Depends(get_organization_settings_service),
+) -> OrganizationSettingsResponse:
+    settings = await service.get(org_id=org_id, user_id=subject.user_id)
+    if settings is not None:
+        return OrganizationSettingsResponse.model_validate(settings)
+    # No row yet — surface the same defaults every metric computation falls
+    # back to, so the settings tab shows what's actually in effect.
+    effective = await service.get_effective(org_id)
+    return OrganizationSettingsResponse(
+        organization_id=org_id,
+        sprint_length_days=effective.sprint_length_days,
+        sprint_anchor_date=effective.sprint_anchor_date,
+        stale_pr_threshold_days=effective.stale_pr_threshold_days,
+    )
+
+
+@router.patch(
+    "/{org_id}/settings",
+    response_model=OrganizationSettingsResponse,
+    summary="Update the organization's metric cadence settings",
+)
+async def update_organization_settings(
+    org_id: uuid.UUID,
+    body: UpdateOrganizationSettingsRequest,
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: OrganizationSettingsService = Depends(get_organization_settings_service),
+) -> OrganizationSettingsResponse:
+    fields = body.model_fields_set
+    settings = await service.update(
+        org_id=org_id,
+        user_id=subject.user_id,
+        sprint_length_days=body.sprint_length_days
+        if "sprint_length_days" in fields and body.sprint_length_days is not None
+        else UNSET,
+        sprint_anchor_date=body.sprint_anchor_date
+        if "sprint_anchor_date" in fields
+        else UNSET,
+        stale_pr_threshold_days=body.stale_pr_threshold_days
+        if "stale_pr_threshold_days" in fields
+        and body.stale_pr_threshold_days is not None
+        else UNSET,
+    )
+    return OrganizationSettingsResponse.model_validate(settings)
+
+
+@router.get(
+    "/{org_id}/sprints",
+    response_model=SprintListResponse,
+    summary="List sprints around today under the organization's cadence",
+)
+async def list_organization_sprints(
+    org_id: uuid.UUID,
+    back: int = Query(default=6, ge=0, le=52),
+    forward: int = Query(default=2, ge=0, le=52),
+    subject: AuthenticatedSubject = Depends(get_current_subject),
+    service: OrganizationSettingsService = Depends(get_organization_settings_service),
+) -> SprintListResponse:
+    sprints = await service.list_sprints(
+        org_id=org_id, user_id=subject.user_id, back=back, forward=forward
+    )
+    return SprintListResponse(data=sprints)

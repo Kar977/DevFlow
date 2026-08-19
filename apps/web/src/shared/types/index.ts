@@ -16,6 +16,9 @@ export type {
   MetricTrends,
   MetricTrendSeries,
   MetricTrendPoint,
+  CycleTime,
+  CycleTimeStage,
+  StuckTask,
 } from "@/shared/api/schemas/metrics";
 
 export type ApiError = {

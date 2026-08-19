@@ -59,6 +59,7 @@ function setAsOwner() {
       email: "owner@example.com",
       full_name: "Jan Kowalski",
       avatar_url: null,
+      timezone: null,
       created_at: "2024-01-01T00:00:00Z",
       updated_at: "2024-01-01T00:00:00Z",
     },
@@ -72,11 +73,36 @@ function setAsMember() {
       email: "member@example.com",
       full_name: "Anna Nowak",
       avatar_url: null,
+      timezone: null,
       created_at: "2024-01-01T00:00:00Z",
       updated_at: "2024-01-01T00:00:00Z",
     },
   });
 }
+
+const defaultSettings = {
+  organization_id: ORG_ID,
+  sprint_length_days: 14,
+  sprint_anchor_date: null,
+  stale_pr_threshold_days: 5,
+};
+
+const sprintsFixture = {
+  data: [
+    {
+      number: 11,
+      start_date: "2026-07-22",
+      end_date: "2026-08-04",
+      is_current: false,
+    },
+    {
+      number: 12,
+      start_date: "2026-08-05",
+      end_date: "2026-08-18",
+      is_current: true,
+    },
+  ],
+};
 
 beforeEach(() => {
   useOrgStore.setState({ activeOrgId: ORG_ID });
@@ -84,18 +110,26 @@ beforeEach(() => {
     http.get(`*/organizations/${ORG_ID}`, () => HttpResponse.json(org)),
     http.get(`*/organizations/${ORG_ID}/members`, () =>
       HttpResponse.json({ data: membersFixture() })
+    ),
+    http.get(`*/organizations/${ORG_ID}/settings`, () =>
+      HttpResponse.json(defaultSettings)
+    ),
+    http.get(`*/organizations/${ORG_ID}/sprints`, () =>
+      HttpResponse.json(sprintsFixture)
     )
   );
 });
 
 describe("OrganizationSettingsPage", () => {
-  it("renders the three settings tabs", async () => {
+  it("renders the five settings tabs", async () => {
     setAsOwner();
     renderPage();
     await waitFor(() =>
       expect(screen.getByRole("tab", { name: "Ogólne" })).toBeInTheDocument()
     );
     expect(screen.getByRole("tab", { name: "Członkowie" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Sprinty" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Metryki" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "GitHub" })).toBeInTheDocument();
   });
 
@@ -177,5 +211,122 @@ describe("OrganizationSettingsPage", () => {
     await waitFor(() => expect(screen.getByText("Anna Nowak")).toBeInTheDocument());
 
     expect(screen.getByRole("combobox", { name: "Rola: Anna Nowak" })).toBeDisabled();
+  });
+
+  it("saves the stale-PR threshold from the Metryki tab without touching cadence fields", async () => {
+    setAsOwner();
+    let capturedBody: unknown;
+    server.use(
+      http.patch(`*/organizations/${ORG_ID}/settings`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          organization_id: ORG_ID,
+          sprint_length_days: 14,
+          sprint_anchor_date: null,
+          stale_pr_threshold_days: 3,
+        });
+      })
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Metryki" }));
+
+    const thresholdInput = await screen.findByLabelText(/Próg.*bez aktywności/);
+    await waitFor(() => expect((thresholdInput as HTMLInputElement).value).toBe("5"));
+    await userEvent.clear(thresholdInput);
+    await userEvent.type(thresholdInput, "3");
+
+    await userEvent.click(screen.getByRole("button", { name: /zapisz/i }));
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({ stale_pr_threshold_days: 3 })
+    );
+  });
+
+  it("disables the Metryki tab inputs for a plain member viewer", async () => {
+    setAsMember();
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Metryki" }));
+
+    const thresholdInput = await screen.findByLabelText(/Próg.*bez aktywności/);
+    expect(thresholdInput).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /zapisz/i, hidden: false })
+    ).not.toBeInTheDocument();
+  });
+
+  it("saves sprint cadence from the Sprinty tab without touching the stale-PR threshold", async () => {
+    setAsOwner();
+    let capturedBody: unknown;
+    server.use(
+      http.patch(`*/organizations/${ORG_ID}/settings`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          organization_id: ORG_ID,
+          sprint_length_days: 10,
+          sprint_anchor_date: "2026-08-05",
+          stale_pr_threshold_days: 5,
+        });
+      })
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Sprinty" }));
+
+    const lengthInput = await screen.findByLabelText("Długość sprintu (dni)");
+    await waitFor(() => expect((lengthInput as HTMLInputElement).value).toBe("14"));
+    await userEvent.clear(lengthInput);
+    await userEvent.type(lengthInput, "10");
+
+    const anchorInput = screen.getByLabelText("Data startu sprintu referencyjnego");
+    await userEvent.type(anchorInput, "2026-08-05");
+
+    await userEvent.click(screen.getByRole("button", { name: /zapisz/i }));
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({
+        sprint_length_days: 10,
+        sprint_anchor_date: "2026-08-05",
+      })
+    );
+  });
+
+  it("shows the sprint preview with the current sprint highlighted", async () => {
+    setAsOwner();
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Sprinty" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Sprint 12/)).toBeInTheDocument()
+    );
+    expect(screen.getByText("Bieżący")).toBeInTheDocument();
+  });
+
+  it("warns when the sprint anchor date is not configured", async () => {
+    setAsOwner();
+    server.use(
+      http.get(`*/organizations/${ORG_ID}/settings`, () =>
+        HttpResponse.json(defaultSettings)
+      ),
+      http.get(`*/organizations/${ORG_ID}/sprints`, () =>
+        HttpResponse.json({ data: [{ number: null, start_date: "2026-08-17", end_date: "2026-08-23", is_current: true }] })
+      )
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Sprinty" }));
+
+    expect(
+      await screen.findByText(/Kadencja nie jest skonfigurowana/)
+    ).toBeInTheDocument();
+  });
+
+  it("disables the Sprinty tab inputs for a plain member viewer", async () => {
+    setAsMember();
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Sprinty" }));
+
+    const lengthInput = await screen.findByLabelText("Długość sprintu (dni)");
+    expect(lengthInput).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /zapisz/i, hidden: false })
+    ).not.toBeInTheDocument();
   });
 });

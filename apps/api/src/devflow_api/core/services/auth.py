@@ -128,12 +128,14 @@ class AuthService:
         user_id: uuid.UUID,
         full_name: str | None,
         avatar_url: str | None,
+        timezone: str | None = None,
     ) -> User:
         user = await self.get_user(user_id)
         return await self._user_repo.update(
             user,
             full_name=full_name,
             avatar_url=avatar_url,
+            timezone=timezone,
         )
 
     async def _issue_tokens(self, user_id: uuid.UUID) -> tuple[str, str]:

@@ -7,6 +7,8 @@ import { http, HttpResponse } from "msw";
 import { server } from "./mocks/server";
 import { TaskListPage } from "@/features/tasks/pages/TaskListPage";
 import { useOrgStore } from "@/shared/store/orgStore";
+import { useProjectStore } from "@/shared/store/projectStore";
+import { useTaskFilterStore } from "@/shared/store/taskFilterStore";
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -46,12 +48,20 @@ function makeTask(overrides: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   useOrgStore.setState({ activeOrgId: "org1" });
+  useProjectStore.setState({ activeProjectIdByOrg: {} });
+  useTaskFilterStore.setState({
+    status: "all",
+    assigneeIdByOrg: {},
+    sprintFilterByOrg: {},
+  });
   server.use(
     http.get("*/projects", () =>
       HttpResponse.json({ data: [project], meta: { total: 1, limit: 50, offset: 0 } })
     ),
-    http.get("*/organizations/org1/members", () => HttpResponse.json({ data: [] }))
+    http.get("*/organizations/org1/members", () => HttpResponse.json({ data: [] })),
+    http.get("*/organizations/org1/sprints", () => HttpResponse.json({ data: [] }))
   );
 });
 
@@ -85,5 +95,118 @@ describe("TaskListPage", () => {
 
     expect(screen.getByText("Overdue task")).toBeInTheDocument();
     expect(screen.queryByText("Future task")).not.toBeInTheDocument();
+  });
+
+  describe("project selection persistence", () => {
+    const projectA = { ...project, id: "p-a", name: "Project A" };
+    const projectB = { ...project, id: "p-b", name: "Project B" };
+
+    function serveTasksAndCaptureProjectId(capture: { value: string | null }) {
+      server.use(
+        http.get("*/projects", () =>
+          HttpResponse.json({
+            data: [projectA, projectB],
+            meta: { total: 2, limit: 50, offset: 0 },
+          })
+        ),
+        http.get("*/tasks", ({ request }) => {
+          capture.value = new URL(request.url).searchParams.get("project_id");
+          return HttpResponse.json({ data: [], meta: { total: 0, limit: 50, offset: 0 } });
+        })
+      );
+    }
+
+    it("honors a previously selected project even when it is not the first in the list", async () => {
+      useProjectStore.setState({ activeProjectIdByOrg: { org1: "p-b" } });
+      const captured = { value: null as string | null };
+      serveTasksAndCaptureProjectId(captured);
+
+      renderPage();
+
+      await waitFor(() => expect(captured.value).toBe("p-b"));
+    });
+
+    it("falls back to the first project when the stored id no longer exists", async () => {
+      useProjectStore.setState({ activeProjectIdByOrg: { org1: "does-not-exist" } });
+      const captured = { value: null as string | null };
+      serveTasksAndCaptureProjectId(captured);
+
+      renderPage();
+
+      await waitFor(() => expect(captured.value).toBe("p-a"));
+      // The fallback must also be written back to the store, so navigating
+      // away and back keeps showing "Project A" instead of re-defaulting.
+      await waitFor(() =>
+        expect(useProjectStore.getState().activeProjectIdByOrg.org1).toBe("p-a")
+      );
+    });
+
+    it("keeps the selection when the page unmounts and remounts", async () => {
+      const captured = { value: null as string | null };
+      serveTasksAndCaptureProjectId(captured);
+
+      const { unmount } = renderPage();
+      await waitFor(() => expect(captured.value).toBe("p-a"));
+
+      unmount();
+      captured.value = null;
+      renderPage();
+
+      await waitFor(() => expect(captured.value).toBe("p-a"));
+    });
+  });
+
+  describe("status/assignee filter persistence", () => {
+    function captureTaskParams(capture: { status: string | null; assignee: string | null }) {
+      server.use(
+        http.get("*/tasks", ({ request }) => {
+          const params = new URL(request.url).searchParams;
+          capture.status = params.get("status");
+          capture.assignee = params.get("assignee_id");
+          return HttpResponse.json({ data: [], meta: { total: 0, limit: 50, offset: 0 } });
+        })
+      );
+    }
+
+    it("honors a previously selected status filter across remounts", async () => {
+      useTaskFilterStore.setState({ status: "done", assigneeIdByOrg: {} });
+      const captured = { status: null as string | null, assignee: null as string | null };
+      captureTaskParams(captured);
+
+      renderPage();
+
+      await waitFor(() => expect(captured.status).toBe("done"));
+    });
+
+    it("honors a previously selected assignee filter, scoped to the active org", async () => {
+      useTaskFilterStore.setState({
+        status: "all",
+        assigneeIdByOrg: { org1: "user-1", "other-org": "user-2" },
+      });
+      const captured = { status: null as string | null, assignee: null as string | null };
+      captureTaskParams(captured);
+
+      renderPage();
+
+      await waitFor(() => expect(captured.assignee).toBe("user-1"));
+    });
+
+    it("keeps status and assignee selections when the page unmounts and remounts", async () => {
+      useTaskFilterStore.setState({ status: "in_progress", assigneeIdByOrg: { org1: "user-1" } });
+      const captured = { status: null as string | null, assignee: null as string | null };
+      captureTaskParams(captured);
+
+      const { unmount } = renderPage();
+      await waitFor(() => expect(captured.status).toBe("in_progress"));
+      expect(captured.assignee).toBe("user-1");
+
+      unmount();
+      captured.status = null;
+      captured.assignee = null;
+      renderPage();
+
+      await waitFor(() => expect(captured.status).toBe("in_progress"));
+      expect(captured.assignee).toBe("user-1");
+    });
   });
 });

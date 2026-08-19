@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -15,6 +15,7 @@ from devflow_api.core.models.pull_request import PullRequest
 from devflow_api.core.models.user import User
 from devflow_api.core.schemas.metrics import PRDashboardResponse
 from devflow_api.core.security import AuthenticatedSubject, get_current_subject
+from devflow_api.core.services.organization_settings import OrgMetricSettings
 from devflow_api.core.services.period import week_start as _week_start
 from devflow_api.core.services.pr_metrics import (
     PRMetricsService,
@@ -27,9 +28,25 @@ from devflow_api.main import create_app
 # data must be anchored to it as well.
 _NOW = datetime.now(UTC)
 
+# A window wide enough to comfortably contain every offset used by the
+# KPI-formula tests below (they only care about the formula, not about
+# get_pr_dashboard's own window resolution) — the equivalent of the old
+# "no window at all" behaviour these tests were originally written against.
+# Tests that specifically exercise windowing pass their own date_from/date_to.
+_WIDE_FROM = (_NOW - timedelta(days=180)).date()
+_WIDE_TO = (_NOW + timedelta(days=1)).date()
+
 ORG_ID = uuid.uuid4()
 USER_ID = uuid.uuid4()
 REPO_ID = uuid.uuid4()
+
+
+class FakeSettingsService:
+    def __init__(self, settings: OrgMetricSettings) -> None:
+        self._settings = settings
+
+    async def get_effective(self, org_id: uuid.UUID) -> OrgMetricSettings:
+        return self._settings
 
 
 def _pr(
@@ -145,6 +162,7 @@ def _service(
     org_repo: FakeOrgRepo | None = None,
     conn_repo: FakeConnRepo | None = None,
     user_repo: FakeUserRepo | None = None,
+    settings_service: FakeSettingsService | None = None,
 ) -> PRMetricsService:
     if org_repo is None:
         org_repo = FakeOrgRepo()
@@ -154,12 +172,23 @@ def _service(
         org_repo=org_repo,  # type: ignore[arg-type]
         conn_repo=conn_repo or FakeConnRepo(),  # type: ignore[arg-type]
         user_repo=user_repo or FakeUserRepo(),  # type: ignore[arg-type]
+        settings_service=settings_service,  # type: ignore[arg-type]
     )
 
 
-def _run(prs: list[PullRequest], **kwargs: Any) -> PRDashboardResponse:
+def _run(
+    prs: list[PullRequest],
+    *,
+    date_from: date | None = _WIDE_FROM,
+    date_to: date | None = _WIDE_TO,
+    **kwargs: Any,
+) -> PRDashboardResponse:
     service = _service(prs, **kwargs)
-    return asyncio.run(service.get_pr_dashboard(org_id=ORG_ID, user_id=USER_ID))
+    return asyncio.run(
+        service.get_pr_dashboard(
+            org_id=ORG_ID, user_id=USER_ID, date_from=date_from, date_to=date_to
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +209,53 @@ def test_stale_pr_count_counts_open_older_than_5_days() -> None:
     ]
     result = _run(prs)
     assert result.stale_pr_count == 1
+
+
+def test_stale_pr_count_excludes_pr_with_recent_github_activity() -> None:
+    # Old by creation date, but GitHub shows activity (a push, a comment...)
+    # yesterday -> not stale. Staleness is about inactivity, not age.
+    pr = _pr(state="open", created_offset_days=10)
+    pr.updated_at_github = _NOW - timedelta(days=1)
+    result = _run([pr])
+    assert result.stale_pr_count == 0
+
+
+def test_stale_pr_count_excludes_pr_with_recent_review() -> None:
+    pr = _pr(
+        state="open", created_offset_days=10, first_review_at=_NOW - timedelta(hours=2)
+    )
+    result = _run([pr])
+    assert result.stale_pr_count == 0
+
+
+def test_stale_pr_count_still_counts_old_untouched_pr() -> None:
+    pr = _pr(state="open", created_offset_days=10)
+    result = _run([pr])
+    assert result.stale_pr_count == 1
+
+
+def test_stale_pr_count_uses_org_threshold_from_settings() -> None:
+    settings_service = FakeSettingsService(
+        OrgMetricSettings(
+            sprint_length_days=14, sprint_anchor_date=None, stale_pr_threshold_days=2
+        )
+    )
+    # 3 days idle: stale under a 2-day org threshold, would not be under
+    # the 5-day default.
+    pr = _pr(state="open", created_offset_days=3)
+    result = _run([pr], settings_service=settings_service)
+    assert result.stale_pr_count == 1
+    assert result.stale_threshold_days == 2
+
+
+def test_awaiting_first_review_counts_open_unreviewed_prs() -> None:
+    prs = [
+        _pr(state="open"),  # never reviewed -> awaiting
+        _pr(state="open", first_review_at=_NOW - timedelta(hours=1)),  # reviewed
+        _pr(state="merged"),  # not open
+    ]
+    result = _run(prs)
+    assert result.awaiting_first_review == 1
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +300,21 @@ def test_review_velocity_none_when_no_recent_reviews() -> None:
 
 
 def test_weekly_throughput_counts_merged_in_window() -> None:
+    # weekly_throughput follows the dashboard's own selected window (unlike
+    # review_velocity, which is always a fixed rolling 7 days) — so this
+    # pins that with an explicit narrow window rather than relying on
+    # get_pr_dashboard's window-resolution default.
     prs = [
         _pr(state="merged", merged_at=_NOW - timedelta(days=3)),
         _pr(state="merged", merged_at=_NOW - timedelta(days=3)),
         _pr(state="merged", merged_at=_NOW - timedelta(days=10)),  # outside
         _pr(state="open"),
     ]
-    result = _run(prs)
+    result = _run(
+        prs,
+        date_from=(_NOW - timedelta(days=7)).date(),
+        date_to=_NOW.date(),
+    )
     assert result.weekly_throughput == 2
 
 
@@ -254,6 +338,50 @@ def test_review_ratio_calculates_fraction() -> None:
     unreviewed = _pr()
     result = _run([reviewed, unreviewed])
     assert result.review_ratio == pytest.approx(0.5)
+
+
+def test_review_ratio_and_time_to_first_review_use_cohort_not_lifetime() -> None:
+    """Both are computed over PRs *opened* within the selected window — a PR
+    opened long before it must not drag the ratio down or skew the average,
+    even though it's still returned by the (unfiltered) repo fetch."""
+    date_from = (_NOW - timedelta(days=7)).date()
+    date_to = _NOW.date()
+
+    in_window_reviewed = _pr(
+        created_offset_days=1, first_review_at=_NOW - timedelta(hours=12)
+    )
+    in_window_unreviewed = _pr(created_offset_days=2)
+    outside_window_unreviewed = _pr(created_offset_days=30)
+
+    result = _run(
+        [in_window_reviewed, in_window_unreviewed, outside_window_unreviewed],
+        date_from=date_from,
+        date_to=date_to,
+    )
+    assert result.cohort_size == 2
+    assert result.reviewed_in_cohort == 1
+    assert result.review_ratio == pytest.approx(0.5)
+    assert result.time_to_first_review == pytest.approx(12.0, abs=0.1)
+
+
+def test_time_to_first_review_prev_uses_preceding_equal_length_window() -> None:
+    date_from = (_NOW - timedelta(days=7)).date()
+    date_to = _NOW.date()
+
+    # created_at_github set explicitly (not via created_offset_days) so the
+    # expected wait time — first_review_at minus created_at_github — is
+    # exact and independent of when the PR falls inside the window.
+    current = _pr()
+    current.created_at_github = _NOW - timedelta(hours=10)
+    current.first_review_at = _NOW - timedelta(hours=4)  # 6h wait, in-window
+
+    previous = _pr()
+    previous.created_at_github = _NOW - timedelta(days=10)  # in [prev_start, start)
+    previous.first_review_at = previous.created_at_github + timedelta(hours=30)
+
+    result = _run([current, previous], date_from=date_from, date_to=date_to)
+    assert result.time_to_first_review == pytest.approx(6.0, abs=0.1)
+    assert result.time_to_first_review_prev == pytest.approx(30.0, abs=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -359,23 +487,34 @@ def test_get_pr_flow_report_empty_org_returns_nulls_and_empty_lists() -> None:
     assert result.bottlenecks.slowest_first_review == []
 
 
-def test_pr_dashboard_windows_unchanged_after_generalising_helpers() -> None:
-    """Pin: get_pr_dashboard's output must not shift after _review_velocity
-    and _weekly_throughput were generalised to accept an explicit window
-    instead of hardcoding `now`."""
+def test_review_velocity_is_a_fixed_rolling_window_independent_of_period() -> None:
+    """review_velocity always looks at reviews from the last 7 real-time
+    days, regardless of the dashboard's own selected date_from/date_to —
+    unlike weekly_throughput and the cohort-based fields, which follow it."""
     prs = [
-        _pr(state="merged", merged_at=_NOW - timedelta(days=3)),
         _pr(
             state="open",
             created_offset_days=2,
             first_review_at=_NOW - timedelta(hours=5),
-        ),
+        )
     ]
-    result = _run(prs)
-    assert result.weekly_throughput == 1
+    # A narrow, unrelated window that would exclude this PR's *creation*
+    # date if review_velocity followed it — it must not.
+    result = _run(
+        prs,
+        date_from=(_NOW - timedelta(hours=1)).date(),
+        date_to=(_NOW + timedelta(days=1)).date(),
+    )
     assert result.review_velocity == pytest.approx(
         (_NOW - timedelta(hours=5) - (_NOW - timedelta(days=2))).total_seconds() / 3600
     )
+
+
+def test_dashboard_default_window_is_current_iso_week_with_no_cadence() -> None:
+    monday = datetime.combine(_week_start(_NOW), datetime.min.time(), tzinfo=UTC)
+    result = asyncio.run(_service([]).get_pr_dashboard(org_id=ORG_ID, user_id=USER_ID))
+    assert result.period_from == monday
+    assert result.period_to == monday + timedelta(days=7)
 
 
 # ---------------------------------------------------------------------------
@@ -392,31 +531,60 @@ def test_dashboard_rejects_non_member() -> None:
 
 def test_dashboard_filters_by_member_github_login() -> None:
     member_id = uuid.uuid4()
+    org_repo = FakeOrgRepo()
+    org_repo.seed_member(ORG_ID, USER_ID, "member")
+    org_repo.seed_member(ORG_ID, member_id, "member")
     conn_repo = FakeConnRepo()
     conn_repo.seed(member_id, "octocat")
     prs = [
         _pr(author_login="octocat", state="merged", merged_at=_NOW),
         _pr(author_login="someone-else", state="merged", merged_at=_NOW),
     ]
-    service = _service(prs, conn_repo=conn_repo)
+    service = _service(prs, org_repo=org_repo, conn_repo=conn_repo)
     result = asyncio.run(
         service.get_pr_dashboard(
-            org_id=ORG_ID, user_id=USER_ID, member_user_id=member_id
+            org_id=ORG_ID,
+            user_id=USER_ID,
+            member_user_id=member_id,
+            date_from=_WIDE_FROM,
+            date_to=_WIDE_TO,
         )
     )
     assert result.weekly_throughput == 1
 
 
 def test_dashboard_member_without_link_returns_404() -> None:
-    service = _service([])
+    # In the org, but never connected a GitHub account.
+    member_id = uuid.uuid4()
+    org_repo = FakeOrgRepo()
+    org_repo.seed_member(ORG_ID, USER_ID, "member")
+    org_repo.seed_member(ORG_ID, member_id, "member")
+    service = _service([], org_repo=org_repo)
     with pytest.raises(AppError) as exc_info:
         asyncio.run(
             service.get_pr_dashboard(
-                org_id=ORG_ID, user_id=USER_ID, member_user_id=uuid.uuid4()
+                org_id=ORG_ID, user_id=USER_ID, member_user_id=member_id
             )
         )
     assert exc_info.value.status_code == 404
     assert exc_info.value.code == "member_not_linked"
+
+
+def test_dashboard_member_outside_org_returns_403() -> None:
+    # Linked to GitHub, but not a member of *this* org — must be rejected
+    # before the GitHub-link check ever runs (no 404 leaking whether an
+    # arbitrary user id has a GitHub connection).
+    outsider_id = uuid.uuid4()
+    conn_repo = FakeConnRepo()
+    conn_repo.seed(outsider_id, "someone")
+    service = _service([], conn_repo=conn_repo)
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.get_pr_dashboard(
+                org_id=ORG_ID, user_id=USER_ID, member_user_id=outsider_id
+            )
+        )
+    assert exc_info.value.status_code == 403
 
 
 def test_list_members_marks_unlinked() -> None:
@@ -512,11 +680,15 @@ def test_get_pr_trends_rejects_non_member() -> None:
 
 
 def test_get_pr_trends_member_without_link_returns_404() -> None:
-    service = _service([])
+    member_id = uuid.uuid4()
+    org_repo = FakeOrgRepo()
+    org_repo.seed_member(ORG_ID, USER_ID, "member")
+    org_repo.seed_member(ORG_ID, member_id, "member")
+    service = _service([], org_repo=org_repo)
     with pytest.raises(AppError) as exc_info:
         asyncio.run(
             service.get_pr_trends(
-                org_id=ORG_ID, user_id=USER_ID, member_user_id=uuid.uuid4()
+                org_id=ORG_ID, user_id=USER_ID, member_user_id=member_id
             )
         )
     assert exc_info.value.status_code == 404
@@ -582,11 +754,31 @@ def test_pr_dashboard_route_returns_200() -> None:
         subject_id=str(USER_ID)
     )
     with TestClient(app) as c:
-        response = c.get(f"/api/v1/metrics/pr-dashboard?organization_id={ORG_ID}")
+        response = c.get(
+            f"/api/v1/metrics/pr-dashboard?organization_id={ORG_ID}"
+            f"&date_from={_WIDE_FROM}&date_to={_WIDE_TO}"
+        )
     assert response.status_code == 200
     body = response.json()
     assert "stale_pr_count" in body
     assert body["weekly_throughput"] == 1
+
+
+def test_pr_dashboard_route_default_window_returns_200() -> None:
+    """No date params -> the route must still resolve a default window
+    (current sprint / ISO week) rather than erroring."""
+    service = _service([])
+    app = create_app()
+    app.dependency_overrides[get_pr_metrics_service] = lambda: service
+    app.dependency_overrides[get_current_subject] = lambda: AuthenticatedSubject(
+        subject_id=str(USER_ID)
+    )
+    with TestClient(app) as c:
+        response = c.get(f"/api/v1/metrics/pr-dashboard?organization_id={ORG_ID}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["period_from"] is not None
+    assert body["period_to"] is not None
 
 
 def test_pr_dashboard_route_requires_org_param() -> None:

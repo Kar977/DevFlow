@@ -238,6 +238,20 @@ class FakeMetricsRepository:
         return self.project_tasks.get(project_id, [])
 
 
+class FakeUserRepositoryForReport:
+    """No timezone stored — MetricsService._user_tz falls back to UTC."""
+
+    async def get_by_id(self, user_id: uuid.UUID) -> None:
+        return None
+
+
+class FakeStatusChangeRepositoryForReport:
+    """Never called by these report types — none of them touch cycle time."""
+
+    async def list_for_tasks(self, task_ids: list[uuid.UUID]) -> list[object]:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -577,6 +591,8 @@ def test_generate_payload_weekly_summary_shape() -> None:
         metrics_repo=metrics_repo,  # type: ignore[arg-type]
         project_repo=ProjectRepository.__new__(ProjectRepository),
         org_repo=OrganizationRepository.__new__(OrganizationRepository),
+        user_repo=FakeUserRepositoryForReport(),  # type: ignore[arg-type]
+        status_change_repo=FakeStatusChangeRepositoryForReport(),  # type: ignore[arg-type]
     )
 
     payload = asyncio.run(
@@ -787,6 +803,11 @@ def test_generate_payload_pr_flow_weekly_shape() -> None:
         metrics_repo=FakeMetricsRepository(),  # type: ignore[arg-type]
         project_repo=ProjectRepository.__new__(ProjectRepository),
         org_repo=OrganizationRepository.__new__(OrganizationRepository),
+        # pr_flow_weekly never touches user-scoped productivity metrics, so
+        # user_repo.get_by_id / status_change_repo.list_for_tasks are never
+        # actually called here.
+        user_repo=None,  # type: ignore[arg-type]
+        status_change_repo=None,  # type: ignore[arg-type]
     )
 
     payload = asyncio.run(
@@ -812,6 +833,11 @@ def test_generate_payload_pr_flow_weekly_without_pr_metrics_raises() -> None:
         metrics_repo=FakeMetricsRepository(),  # type: ignore[arg-type]
         project_repo=ProjectRepository.__new__(ProjectRepository),
         org_repo=OrganizationRepository.__new__(OrganizationRepository),
+        # pr_flow_weekly never touches user-scoped productivity metrics, so
+        # user_repo.get_by_id / status_change_repo.list_for_tasks are never
+        # actually called here.
+        user_repo=None,  # type: ignore[arg-type]
+        status_change_repo=None,  # type: ignore[arg-type]
     )
     with pytest.raises(ValueError, match="pr_flow_weekly"):
         asyncio.run(

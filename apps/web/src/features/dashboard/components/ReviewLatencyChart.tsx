@@ -44,7 +44,7 @@ export function ReviewLatencyChart({ data, isLoading }: Props) {
             {...axisProps(palette.chrome.axis)}
           />
           <YAxis {...axisProps(palette.chrome.axis)} />
-          <Tooltip content={<ChartTooltip />} />
+          <Tooltip content={<ChartTooltip labelFormatter={formatWeekLabel} />} />
           <Line
             type="monotone"
             dataKey="avg_time_to_first_review_h"

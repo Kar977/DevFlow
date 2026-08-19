@@ -65,11 +65,18 @@ export const StreakSchema = z.object({
 });
 
 export const PRDashboardSchema = z.object({
+  period_from: z.string(),
+  period_to: z.string(),
   stale_pr_count: z.number(),
+  stale_threshold_days: z.number(),
+  awaiting_first_review: z.number(),
   time_to_first_review: z.number().nullable(),
+  time_to_first_review_prev: z.number().nullable(),
   review_velocity: z.number().nullable(),
   weekly_throughput: z.number(),
   review_ratio: z.number().nullable(),
+  cohort_size: z.number(),
+  reviewed_in_cohort: z.number(),
 });
 
 export const PRDashboardMemberSchema = z.object({
@@ -112,6 +119,25 @@ export const MetricTrendsSchema = z.object({
   series: z.array(MetricTrendSeriesSchema),
 });
 
+export const CycleTimeStageSchema = z.object({
+  status: z.string(),
+  average_hours: z.number(),
+  sample_size: z.number(),
+});
+
+export const StuckTaskSchema = z.object({
+  task_id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  hours_in_status: z.number(),
+});
+
+export const CycleTimeSchema = z.object({
+  project_id: z.string(),
+  stages: z.array(CycleTimeStageSchema),
+  stuck: z.array(StuckTaskSchema),
+});
+
 export type MetricValue = z.infer<typeof MetricValueSchema>;
 export type Summary = z.infer<typeof SummarySchema>;
 export type WeeklyVelocityPoint = z.infer<typeof WeeklyVelocityPointSchema>;
@@ -129,3 +155,6 @@ export type PRTrends = z.infer<typeof PRTrendsSchema>;
 export type MetricTrendPoint = z.infer<typeof MetricTrendPointSchema>;
 export type MetricTrendSeries = z.infer<typeof MetricTrendSeriesSchema>;
 export type MetricTrends = z.infer<typeof MetricTrendsSchema>;
+export type CycleTimeStage = z.infer<typeof CycleTimeStageSchema>;
+export type StuckTask = z.infer<typeof StuckTaskSchema>;
+export type CycleTime = z.infer<typeof CycleTimeSchema>;
