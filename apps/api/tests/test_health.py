@@ -45,6 +45,24 @@ def test_docs_available_in_local_environment(client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def test_health_exempt_from_trusted_host_check() -> None:
+    """/health must stay reachable even when the request Host doesn't match
+    allowed_hosts, mirroring Render's internal health-check prober."""
+    from devflow_api.core.config import Settings
+
+    prod_settings = Settings(
+        environment="production",
+        debug=False,
+        secret_key="a" * 32,
+        cors_origins=["https://app.example.com"],
+        allowed_hosts=["api.example.com"],
+    )
+    prod_client = TestClient(create_app(prod_settings))
+
+    assert prod_client.get("/health").status_code == 200
+    assert prod_client.get("/api/v1").status_code == 400
+
+
 def test_docs_disabled_in_production() -> None:
     """Interactive docs must be unavailable when environment=production."""
     from devflow_api.core.config import Settings
