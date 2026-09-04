@@ -53,6 +53,28 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+class HealthCheckExemptTrustedHostMiddleware:
+    """TrustedHostMiddleware that always lets ``/health`` through.
+
+    Render's internal health-check prober hits the container over the
+    private network with a Host header that never matches the public
+    ``allowed_hosts`` list, which would otherwise make TrustedHostMiddleware
+    reject the probe with 400 and leave the deploy stuck as unhealthy.
+    ``/health`` returns no data, so exempting only it keeps host-header
+    protection on every real route.
+    """
+
+    def __init__(self, app: ASGIApp, allowed_hosts: list[str]) -> None:
+        self.app = app
+        self._guarded = TrustedHostMiddleware(app, allowed_hosts=allowed_hosts)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"] == "/health":
+            await self.app(scope, receive, send)
+            return
+        await self._guarded(scope, receive, send)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     app_settings = settings or get_settings()
@@ -71,7 +93,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # TrustedHostMiddleware — register before CORS so host is validated first.
     if app_settings.allowed_hosts:
         app.add_middleware(
-            TrustedHostMiddleware, allowed_hosts=app_settings.allowed_hosts
+            HealthCheckExemptTrustedHostMiddleware,
+            allowed_hosts=app_settings.allowed_hosts,
         )
 
     if app_settings.cors_origins:
