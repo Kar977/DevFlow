@@ -10,6 +10,11 @@ services:
       DEVFLOW_API_DATABASE_URL: postgresql+asyncpg://devflow:devflow@postgres:5432/devflow
       DEVFLOW_API_REDIS_URL: redis://redis:6379/0
       DEVFLOW_API_CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
+      # This branch (`demo`) exists to *be* the read-only showcase — see
+      # docs/demo.md — so the local compose stack defaults to demo mode too.
+      # Truncates and reseeds the database on every `up`/restart.
+      DEVFLOW_API_DEMO_MODE: "true"
+      DEVFLOW_API_ACCESS_TOKEN_EXPIRE_MINUTES: "720"
     ports:
       - "8000:8000"
     depends_on:

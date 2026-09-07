@@ -19,6 +19,13 @@ venv/
 .env
 .env.*
 !.env.example
+# Vite reads these to turn on the read-only public showcase
+# (VITE_DEMO_MODE=true) on the `demo` branch — no secret, safe to commit.
+# Both modes are needed: .env.production for `vite build` (the real
+# deployment), .env.development for `npm run dev` (local testing of this
+# branch) — Vite only loads the file matching the command's mode.
+!apps/web/.env.production
+!apps/web/.env.development
 devflow-local-gh-app*
 
 # IDEs and OS files
