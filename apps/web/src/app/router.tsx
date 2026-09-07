@@ -7,6 +7,7 @@ import { DashboardPage } from "@/features/dashboard/pages/DashboardPage";
 import { AppShell } from "@/shared/ui/AppShell";
 import { GitHubCallbackPage } from "@/features/github/pages/GitHubCallbackPage";
 import { GitHubSetupPage } from "@/features/github/pages/GitHubSetupPage";
+import { IS_DEMO } from "@/shared/lib/demo";
 
 const TaskListPage = lazy(() =>
   import("@/features/tasks/pages/TaskListPage").then((m) => ({ default: m.TaskListPage }))
@@ -53,7 +54,12 @@ export function ProtectedRoute() {
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
-  { path: "/register", element: <RegisterPage /> },
+  // Registration is rejected by the read-only API anyway; redirecting keeps
+  // a visitor from landing on a dead-end form in the demo deployment.
+  {
+    path: "/register",
+    element: IS_DEMO ? <Navigate to="/login" replace /> : <RegisterPage />,
+  },
   { path: "/integrations/github/callback", element: <GitHubCallbackPage /> },
   { path: "/integrations/github/setup", element: <GitHubSetupPage /> },
   {

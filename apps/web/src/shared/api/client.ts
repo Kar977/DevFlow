@@ -1,5 +1,10 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { useAuthStore } from "@/shared/store/authStore";
+import {
+  DEMO_READ_ONLY_ERROR_CODE,
+  DEMO_READ_ONLY_TOAST_MESSAGE,
+  IS_DEMO,
+} from "@/shared/lib/demo";
 
 export const apiClient = axios.create({
   baseURL: "/api/v1",
@@ -15,6 +20,50 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
   return config;
 });
+
+// Read-only public showcase mode (see shared/lib/demo.ts): every mutating
+// request is stopped here, before it leaves the browser, and rejected with
+// a synthetic error shaped exactly like the real 403 the backend's
+// DemoReadOnlyMiddleware would return — so getErrorMessage() and every
+// existing mutation's own error handling need no changes to surface it.
+// Login/refresh/logout are exempt so a visitor can still authenticate; the
+// backend enforces the identical exemption independently.
+const DEMO_SAFE_METHODS = new Set(["get", "head", "options"]);
+const DEMO_ALLOWED_WRITE_PATHS = new Set([
+  "/auth/login",
+  "/auth/refresh",
+  "/auth/logout",
+]);
+
+if (IS_DEMO) {
+  apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+    const method = (config.method ?? "get").toLowerCase();
+    if (DEMO_SAFE_METHODS.has(method) || DEMO_ALLOWED_WRITE_PATHS.has(config.url ?? "")) {
+      return config;
+    }
+    return Promise.reject(
+      new axios.AxiosError(
+        DEMO_READ_ONLY_TOAST_MESSAGE,
+        "ERR_DEMO_READ_ONLY",
+        config,
+        undefined,
+        {
+          status: 403,
+          statusText: "Forbidden",
+          headers: {},
+          config,
+          data: {
+            error: {
+              code: DEMO_READ_ONLY_ERROR_CODE,
+              message: DEMO_READ_ONLY_TOAST_MESSAGE,
+              details: {},
+            },
+          },
+        } as unknown as AxiosError["response"]
+      )
+    );
+  });
+}
 
 let isRefreshing = false;
 let failedQueue: Array<{
