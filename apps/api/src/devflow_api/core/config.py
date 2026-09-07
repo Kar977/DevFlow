@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # automatically.
     long_running_session_hours: int = 6
 
+    # Read-only showcase deployment: DemoReadOnlyMiddleware blocks every
+    # mutating request (see main.py) and entrypoint.sh reseeds the database
+    # on every container start (see devflow_api.demo). Never enable this
+    # against a database holding real data — the seeder truncates it.
+    demo_mode: bool = False
+
     @model_validator(mode="after")
     def _validate_production_settings(self) -> Settings:
         """Refuse to start in production with unsafe / default configuration."""
