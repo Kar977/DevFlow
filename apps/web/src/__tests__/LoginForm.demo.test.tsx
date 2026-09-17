@@ -54,14 +54,20 @@ describe("LoginForm — demo mode", () => {
     });
   });
 
-  it("still renders the regular login form below the demo entry", async () => {
+  it("does not render the regular email/password login form", async () => {
     await renderDemoLoginForm();
-    expect(screen.getByLabelText("E-mail")).toBeInTheDocument();
-    expect(screen.getByLabelText("Hasło")).toBeInTheDocument();
+    expect(screen.queryByLabelText("E-mail")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Hasło")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^zaloguj się$/i })).not.toBeInTheDocument();
   });
 
   it("hides the registration link", async () => {
     await renderDemoLoginForm();
     expect(screen.queryByRole("link", { name: /zarejestruj/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a warning that the backend may need a few minutes to wake up", async () => {
+    await renderDemoLoginForm();
+    expect(screen.getByText(/kilka minut/i)).toBeInTheDocument();
   });
 });

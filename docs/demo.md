@@ -55,10 +55,11 @@ bazy produkcyjnej tym poleceniem.
 ## Logowanie
 
 Wszyscy odwiedzający współdzielą jedno konto (`demo@devflow.app`). Ekran logowania w
-trybie demo (`apps/web/src/features/auth/components/LoginForm.tsx`) pokazuje przycisk
-„Wejdź do demo”, który loguje tym kontem bez wpisywania danych; zwykły formularz zostaje
-dostępny pod spodem, a link do rejestracji jest ukryty (rejestracja i tak jest odrzucana
-przez API).
+trybie demo (`apps/web/src/features/auth/components/LoginForm.tsx`) pokazuje wyłącznie
+opis demo, przycisk „Wejdź do demo” (loguje tym kontem bez wpisywania danych) i ostrzeżenie,
+że backend na darmowym hostingu bywa usypiany, więc pierwsze wejście może potrwać kilka
+minut. Zwykły formularz e-mail/hasło i link do rejestracji nie są renderowane w tym trybie
+(rejestracja i tak jest odrzucana przez API).
 
 ## Zmienne środowiskowe specyficzne dla demo
 

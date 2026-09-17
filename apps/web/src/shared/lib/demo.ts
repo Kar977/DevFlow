@@ -31,6 +31,15 @@ export const DEMO_BANNER_MESSAGE =
 export const DEMO_READ_ONLY_TOAST_MESSAGE =
   "Tryb demo — dodawanie, zmiana i usuwanie danych jest wyłączone.";
 
+export const DEMO_COLD_START_MESSAGE =
+  "Demo działa na darmowym hostingu — po dłuższej bezczynności backend jest usypiany " +
+  "i pierwsze wejście może potrwać kilka minut. Jeśli się nie powiedzie, odczekaj chwilę " +
+  "i kliknij ponownie.";
+
+export const DEMO_LOGIN_ERROR_MESSAGE =
+  "Nie udało się połączyć z aplikacją — backend prawdopodobnie właśnie się wybudza. " +
+  "Odczekaj chwilę i spróbuj ponownie.";
+
 /** Matches the backend's `core/errors.py::error_payload` envelope exactly,
  * so a request blocked client-side is indistinguishable, on the wire shape,
  * from one the API itself would have rejected. */
