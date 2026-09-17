@@ -20,22 +20,22 @@ export const DEMO_CREDENTIALS = {
   password: "DevFlowDemo2026!",
 };
 
-export const DEMO_INTRO_TITLE = "DevFlow Insight — wersja demonstracyjna";
+export const DEMO_INTRO_TITLE = "DevFlow Insight — demo";
 
 export const DEMO_INTRO_MESSAGE =
-  "To jest wersja demonstracyjna aplikacji, wypełniona przykładowymi danymi. " +
-  "Możesz swobodnie dodawać, edytować i usuwać zadania, projekty czy raporty — " +
-  "niczego tu nie zepsujesz, bo dane co jakiś czas wracają do stanu początkowego. " +
-  "Integracja z GitHubem jest w pełni symulowana i nie łączy się z prawdziwym kontem.";
+  "Przykładowe dane, pełen dostęp. Klikaj, dodawaj, kasuj co chcesz — " +
+  "co jakiś czas wszystko wraca do stanu początkowego.";
+
+/** Drugi akapit karty logowania — osobna stała, bo renderuje się jako własny <p>. */
+export const DEMO_INTRO_GITHUB_NOTE =
+  "GitHub jest symulowany, nie łączy się z prawdziwym kontem.";
 
 export const DEMO_BANNER_MESSAGE =
   "Wersja demonstracyjna — dane są przykładowe i można je swobodnie edytować. " +
   "Co jakiś czas wracają do stanu początkowego, a integracja z GitHubem jest symulowana.";
 
 export const DEMO_COLD_START_MESSAGE =
-  "Demo działa na darmowym hostingu — po dłuższej bezczynności backend jest usypiany " +
-  "i pierwsze wejście może potrwać kilka minut. Jeśli się nie powiedzie, odczekaj chwilę " +
-  "i kliknij ponownie.";
+  "Backend usypia na darmowym hostingu — pierwsze wejście może potrwać kilka minut.";
 
 export const DEMO_LOGIN_ERROR_MESSAGE =
   "Nie udało się połączyć z aplikacją — backend prawdopodobnie właśnie się wybudza. " +
