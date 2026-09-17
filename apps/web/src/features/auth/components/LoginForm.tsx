@@ -8,6 +8,7 @@ import { Button, Input, Label, Card, CardContent, CardHeader, CardTitle } from "
 import {
   DEMO_COLD_START_MESSAGE,
   DEMO_CREDENTIALS,
+  DEMO_INTRO_GITHUB_NOTE,
   DEMO_INTRO_MESSAGE,
   DEMO_INTRO_TITLE,
   DEMO_LOGIN_ERROR_MESSAGE,
@@ -37,6 +38,7 @@ function DemoLoginCard() {
       <CardContent>
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">{DEMO_INTRO_MESSAGE}</p>
+          <p className="text-sm text-muted-foreground">{DEMO_INTRO_GITHUB_NOTE}</p>
           <div
             role="status"
             className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"

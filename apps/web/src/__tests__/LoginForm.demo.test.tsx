@@ -41,7 +41,7 @@ describe("LoginForm — demo mode", () => {
 
   it("shows the demo intro and a 'Wejdź do demo' button", async () => {
     await renderDemoLoginForm();
-    expect(screen.getAllByText(/wersja demonstracyjna/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/devflow insight — demo/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /wejdź do demo/i })).toBeInTheDocument();
   });
 
