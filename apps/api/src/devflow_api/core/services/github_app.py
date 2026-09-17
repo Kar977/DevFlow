@@ -300,11 +300,33 @@ def get_github_app_service(
     session: AsyncSession = Depends(get_session),
 ) -> GitHubAppService:
     settings = get_settings()
+    installation_repo = GitHubInstallationRepository(session)
+    repository_repo = RepositoryRepository(session)
+    org_repo = OrganizationRepository(session)
+
+    if settings.demo_mode:
+        # Local import: devflow_api.demo is a maintenance package, not part
+        # of the normal request-path dependency graph — see its __init__.
+        from devflow_api.demo.github import (
+            DemoGitHubApiClient,
+            DemoGitHubAppService,
+            DemoInstallationTokenProvider,
+        )
+
+        demo_client = DemoGitHubApiClient()
+        return DemoGitHubAppService(
+            installation_repo=installation_repo,
+            repository_repo=repository_repo,
+            org_repo=org_repo,
+            api_client=demo_client,
+            token_provider=DemoInstallationTokenProvider(api_client=demo_client),
+        )
+
     api_client = GitHubApiClient()
     return GitHubAppService(
-        installation_repo=GitHubInstallationRepository(session),
-        repository_repo=RepositoryRepository(session),
-        org_repo=OrganizationRepository(session),
+        installation_repo=installation_repo,
+        repository_repo=repository_repo,
+        org_repo=org_repo,
         api_client=api_client,
         token_provider=InstallationTokenProvider(
             api_client=api_client,

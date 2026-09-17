@@ -70,11 +70,19 @@ class Settings(BaseSettings):
     # automatically.
     long_running_session_hours: int = 6
 
-    # Read-only showcase deployment: DemoReadOnlyMiddleware blocks every
-    # mutating request (see main.py) and entrypoint.sh reseeds the database
-    # on every container start (see devflow_api.demo). Never enable this
-    # against a database holding real data — the seeder truncates it.
+    # Public showcase deployment: DemoGuardMiddleware blocks only registration
+    # (see main.py) — every other write is allowed, so a visitor can actually
+    # use the app. entrypoint.sh reseeds the database on every container
+    # start (see devflow_api.demo), and a background loop reseeds it again
+    # on `demo_reset_interval_minutes`, wiping whatever visitors changed.
+    # Never enable this against a database holding real data — the seeder
+    # truncates it.
     demo_mode: bool = False
+
+    # How often demo data resets to its seeded baseline while the app is
+    # running (minutes). 0 disables the periodic reset — only the one-off
+    # seed in entrypoint.sh still runs at container start.
+    demo_reset_interval_minutes: int = 30
 
     @model_validator(mode="after")
     def _validate_production_settings(self) -> Settings:

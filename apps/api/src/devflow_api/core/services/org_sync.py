@@ -174,6 +174,27 @@ def get_org_sync_service(
     session: AsyncSession = Depends(get_session),
 ) -> OrgSyncService:
     settings = get_settings()
+
+    if settings.demo_mode:
+        # Local import: devflow_api.demo is a maintenance package, not part
+        # of the normal request-path dependency graph — see its __init__.
+        from devflow_api.demo.github import (
+            DemoGitHubApiClient,
+            DemoInstallationTokenProvider,
+        )
+
+        demo_client = DemoGitHubApiClient()
+        return OrgSyncService(
+            installation_repo=GitHubInstallationRepository(session),
+            repository_repo=RepositoryRepository(session),
+            pr_repo=PullRequestRepository(session),
+            review_repo=PullRequestReviewRepository(session),
+            sync_run_repo=SyncRunRepository(session),
+            org_repo=OrganizationRepository(session),
+            api_client=demo_client,
+            token_provider=DemoInstallationTokenProvider(api_client=demo_client),
+        )
+
     api_client = GitHubApiClient()
     return OrgSyncService(
         installation_repo=GitHubInstallationRepository(session),
