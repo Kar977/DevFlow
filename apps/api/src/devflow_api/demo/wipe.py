@@ -7,9 +7,13 @@ otherwise treated as immutable once captured (see
 ``core.services.metric_snapshot``'s module docstring). ``alembic_version``
 is deliberately not in this list.
 
-``TRUNCATE`` takes an ``ACCESS EXCLUSIVE`` lock, so this must run before
-uvicorn starts accepting traffic — never against a live API (see
-``entrypoint.sh``).
+``TRUNCATE`` takes an ``ACCESS EXCLUSIVE`` lock. That's safe to run against a
+live API as long as it stays in the same transaction as the rewrite that
+follows it (see ``runner.run_seed``) — concurrent readers block until the
+transaction commits rather than ever observing an empty database. It is
+*not* safe to commit a wipe on its own and write the replacement data in a
+second transaction; that window of an empty, committed database is exactly
+what a live visitor could hit.
 """
 
 from sqlalchemy import text

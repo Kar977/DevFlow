@@ -1,4 +1,10 @@
-"""Tests for the demo-mode read-only guarantee (DemoReadOnlyMiddleware)."""
+"""Tests for demo mode's guardrails (DemoGuardMiddleware).
+
+Demo mode lets a visitor edit data freely (see devflow_api.demo.scheduler
+for how it resets to a fresh baseline on a timer) — the only thing the
+middleware itself still blocks is registration, since every visitor shares
+the one demo account.
+"""
 
 import uuid
 
@@ -83,23 +89,14 @@ def test_register_is_blocked_in_demo_mode() -> None:
     assert body["error"]["code"] == "demo_read_only"
 
 
-def test_mutating_methods_are_blocked_on_arbitrary_routes() -> None:
-    """PATCH/DELETE/POST on any non-exempt route are rejected with 403."""
-    client = _demo_client()
-
-    task_id = uuid.uuid4()
-
-    assert client.post("/api/v1/organizations", json={"name": "x"}).status_code == 403
-    assert client.patch(f"/api/v1/tasks/{task_id}", json={}).status_code == 403
-    assert client.delete(f"/api/v1/tasks/{task_id}").status_code == 403
-    assert client.post("/api/v1/metrics/trends/recompute").status_code == 403
-
-
 def test_blocked_response_uses_the_standard_error_envelope() -> None:
     """The 403 body matches core.errors.error_payload's shape exactly."""
     client = _demo_client()
 
-    response = client.post("/api/v1/organizations", json={"name": "x"})
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "new@example.com", "password": "a-valid-password-123"},
+    )
 
     assert response.status_code == 403
     body = response.json()
@@ -109,23 +106,39 @@ def test_blocked_response_uses_the_standard_error_envelope() -> None:
     assert body["error"]["details"] == {}
 
 
-def test_similar_but_distinct_path_is_still_blocked() -> None:
-    """Matching is by exact path, not by prefix — a lookalike path is blocked."""
+def test_similar_but_distinct_path_is_still_blocked_or_falls_through() -> None:
+    """Matching is by exact path, not by prefix — a lookalike path isn't blocked."""
     client = _demo_client()
 
-    response = client.post("/api/v1/auth/login-lookalike")
+    response = client.post("/api/v1/auth/register-lookalike")
 
-    assert response.status_code in (403, 404)
-    if response.status_code == 403:
-        assert response.json()["error"]["code"] == "demo_read_only"
+    # Not the route that exists, so it 404s — but never the demo guard's 403.
+    assert response.status_code != 403
+
+
+def test_writes_on_arbitrary_routes_reach_the_route_handler() -> None:
+    """PATCH/DELETE/POST on ordinary routes are no longer blocked by the guard.
+
+    They still fail — 401, since these requests carry no auth — but that
+    failure must come from the route's own auth dependency, not the demo
+    guard, proving the request was let through.
+    """
+    client = _demo_client()
+
+    task_id = uuid.uuid4()
+
+    assert client.post("/api/v1/organizations", json={"name": "x"}).status_code == 401
+    assert client.patch(f"/api/v1/tasks/{task_id}", json={}).status_code == 401
+    assert client.delete(f"/api/v1/tasks/{task_id}").status_code == 401
+    assert client.post("/api/v1/metrics/trends/recompute").status_code == 401
 
 
 def test_no_blocking_when_demo_mode_is_disabled() -> None:
-    """Outside demo mode, the middleware isn't installed and nothing is blocked
-    by it — the route's own validation runs instead (422 for a missing body)."""
+    """Outside demo mode, the middleware isn't installed — register succeeds
+    or fails on its own terms, never with the demo guard's 403."""
     client = TestClient(create_app(Settings(demo_mode=False)))
 
-    response = client.post("/api/v1/organizations")
+    response = client.post("/api/v1/auth/register")
 
     assert response.status_code != 403
 

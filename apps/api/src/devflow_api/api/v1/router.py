@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from devflow_api.api.v1.auth.routes import router as auth_router
+from devflow_api.api.v1.demo.routes import router as demo_router
 from devflow_api.api.v1.integrations.github.routes import router as github_router
 from devflow_api.api.v1.metrics.routes import router as metrics_router
 from devflow_api.api.v1.organizations.routes import router as organizations_router
@@ -37,3 +38,4 @@ api_router.include_router(
 api_router.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
 api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
 api_router.include_router(github_router, prefix="/integrations/github", tags=["github"])
+api_router.include_router(demo_router, prefix="/demo", tags=["demo"])

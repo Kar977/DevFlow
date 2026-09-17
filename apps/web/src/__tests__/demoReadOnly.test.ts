@@ -5,12 +5,13 @@
  * axios's Node adapter (see client.test.ts for the same rationale).
  *
  * `IS_DEMO` is a module-level constant read from `import.meta.env` at
- * import time (see shared/lib/demo.ts), so exercising the demo-mode branch
- * requires `vi.stubEnv` *before* a fresh dynamic import of client.ts —
- * merely stubbing the env after the module has already loaded elsewhere
- * in the suite would have no effect.
+ * import time (see shared/lib/demo.ts). Demo mode no longer installs any
+ * client-side write guard — writes reach the network exactly like outside
+ * demo mode — so these tests just confirm that stays true whether or not
+ * `VITE_DEMO_MODE` is set, using the same `vi.stubEnv` + fresh dynamic
+ * import pattern the rest of the demo-mode tests use.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "./mocks/server";
 
@@ -22,45 +23,44 @@ async function freshApiClient() {
   return apiClient;
 }
 
-describe("apiClient — demo read-only guard (VITE_DEMO_MODE=true)", () => {
-  beforeEach(() => {
-    vi.stubEnv("VITE_DEMO_MODE", "true");
-  });
-
+describe("apiClient — demo mode (VITE_DEMO_MODE=true)", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("blocks a mutating request without it ever reaching the network", async () => {
+  it("lets a mutating request reach the network, same as outside demo mode", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "true");
     let called = false;
     server.use(
       http.post("http://localhost/api/v1/tasks", () => {
         called = true;
-        return HttpResponse.json({ id: "should-not-happen" });
+        return HttpResponse.json({ id: "created" });
       })
     );
     const apiClient = await freshApiClient();
 
-    await expect(apiClient.post("/tasks", { title: "x" })).rejects.toMatchObject({
-      response: {
-        status: 403,
-        data: { error: { code: "demo_read_only" } },
-      },
-    });
-    expect(called).toBe(false);
+    const response = await apiClient.post("/tasks", { title: "x" });
+
+    expect(response.data).toEqual({ id: "created" });
+    expect(called).toBe(true);
   });
 
-  it("does not block GET requests", async () => {
+  it("lets PATCH and DELETE through too", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "true");
     server.use(
-      http.get("http://localhost/api/v1/tasks", () => HttpResponse.json({ items: [] }))
+      http.patch("http://localhost/api/v1/tasks/1", () => HttpResponse.json({ id: "1" })),
+      http.delete("http://localhost/api/v1/tasks/1", () => new HttpResponse(null, { status: 204 }))
     );
     const apiClient = await freshApiClient();
 
-    const response = await apiClient.get("/tasks");
-    expect(response.data).toEqual({ items: [] });
+    await expect(apiClient.patch("/tasks/1", {})).resolves.toMatchObject({
+      data: { id: "1" },
+    });
+    await expect(apiClient.delete("/tasks/1")).resolves.toMatchObject({ status: 204 });
   });
 
   it("lets POST /auth/login through", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "true");
     server.use(
       http.post("http://localhost/api/v1/auth/login", () =>
         HttpResponse.json({ access_token: "tok" })
@@ -75,35 +75,31 @@ describe("apiClient — demo read-only guard (VITE_DEMO_MODE=true)", () => {
     expect(response.data).toEqual({ access_token: "tok" });
   });
 
-  it("lets POST /auth/refresh and /auth/logout through", async () => {
+  it("still lets registration reach the network (the backend blocks it, not the client)", async () => {
+    vi.stubEnv("VITE_DEMO_MODE", "true");
+    let called = false;
     server.use(
-      http.post("http://localhost/api/v1/auth/refresh", () =>
-        HttpResponse.json({ access_token: "tok" })
-      ),
-      http.post("http://localhost/api/v1/auth/logout", () => new HttpResponse(null, { status: 204 }))
+      http.post("http://localhost/api/v1/auth/register", () => {
+        called = true;
+        return HttpResponse.json(
+          { error: { code: "demo_read_only", message: "x", details: {} } },
+          { status: 403 }
+        );
+      })
     );
     const apiClient = await freshApiClient();
 
-    await expect(apiClient.post("/auth/refresh")).resolves.toMatchObject({
-      data: { access_token: "tok" },
+    await expect(
+      apiClient.post("/auth/register", { email: "x@example.com", password: "x" })
+    ).rejects.toMatchObject({
+      response: { status: 403, data: { error: { code: "demo_read_only" } } },
     });
-    await expect(apiClient.post("/auth/logout")).resolves.toMatchObject({ status: 204 });
-  });
-
-  it("blocks PATCH and DELETE too", async () => {
-    const apiClient = await freshApiClient();
-
-    await expect(apiClient.patch("/tasks/1", {})).rejects.toMatchObject({
-      response: { status: 403 },
-    });
-    await expect(apiClient.delete("/tasks/1")).rejects.toMatchObject({
-      response: { status: 403 },
-    });
+    expect(called).toBe(true);
   });
 });
 
 describe("apiClient — outside demo mode", () => {
-  it("does not install the read-only guard", async () => {
+  it("behaves identically — writes reach the network", async () => {
     let called = false;
     server.use(
       http.post("http://localhost/api/v1/tasks", () => {

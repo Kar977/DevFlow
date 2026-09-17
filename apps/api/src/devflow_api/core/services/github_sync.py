@@ -120,10 +120,26 @@ def get_github_sync_service(
     session: AsyncSession = Depends(get_session),
 ) -> GitHubSyncService:
     settings = get_settings()
+    conn_repo = GitHubConnectionRepository(session)
+
+    if settings.demo_mode:
+        # Local import: devflow_api.demo is a maintenance package, not part
+        # of the normal request-path dependency graph — see its __init__.
+        from devflow_api.demo.github import (
+            DemoGitHubApiClient,
+            DemoGitHubSyncService,
+        )
+
+        return DemoGitHubSyncService(
+            conn_repo=conn_repo,
+            cipher=None,
+            api_client=DemoGitHubApiClient(),
+        )
+
     key = settings.github_token_encryption_key
     cipher = TokenCipher(key) if key else None
     return GitHubSyncService(
-        conn_repo=GitHubConnectionRepository(session),
+        conn_repo=conn_repo,
         cipher=cipher,
         api_client=GitHubApiClient(),
     )

@@ -1,6 +1,9 @@
 """FastAPI application factory and ASGI entrypoint."""
 
-from collections.abc import MutableMapping
+import asyncio
+import logging
+from collections.abc import AsyncIterator, MutableMapping
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI, status
@@ -14,6 +17,9 @@ from devflow_api.api.v1.router import api_router
 from devflow_api.core.config import Settings, get_settings
 from devflow_api.core.errors import error_payload, register_exception_handlers
 from devflow_api.core.schemas.health import HealthResponse
+from devflow_api.demo.scheduler import run_reset_loop
+
+logger = logging.getLogger(__name__)
 
 # Security headers applied to every API response.
 # CSP is intentionally strict for a JSON API (no scripts/styles/frames served).
@@ -54,29 +60,27 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
-_DEMO_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+class DemoGuardMiddleware:
+    """Pure-ASGI middleware that blocks specific requests in demo mode.
 
-
-class DemoReadOnlyMiddleware:
-    """Pure-ASGI middleware that rejects every mutating request in demo mode.
-
-    Read-only showcase deployments (see ``Settings.demo_mode``) reseed their
-    database on every container start and are publicly reachable, so the
-    guarantee that nothing can be created, changed, or deleted must live in
-    the API itself — not only in the frontend, which a visitor can bypass
-    with a raw HTTP request. Only auth's login/refresh/logout are exempted
-    (by exact path, not prefix) so a visitor can still authenticate.
+    Public showcase deployments (see ``Settings.demo_mode``) let a visitor
+    edit data freely — that reseeds to a fresh baseline on a timer (see
+    ``devflow_api.demo.scheduler``) — but must never let a visitor register
+    their own account, since every visitor shares the one demo account.
+    That guarantee must live in the API itself, not only in the frontend,
+    which a visitor can bypass with a raw HTTP request. Matching is by exact
+    (method, path), not by prefix.
     """
 
-    def __init__(self, app: ASGIApp, *, allowed_write_paths: frozenset[str]) -> None:
+    def __init__(
+        self, app: ASGIApp, *, blocked_paths: frozenset[tuple[str, str]]
+    ) -> None:
         self.app = app
-        self._allowed_write_paths = allowed_write_paths
+        self._blocked_paths = blocked_paths
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] != "http"
-            or scope["method"] in _DEMO_SAFE_METHODS
-            or scope["path"] in self._allowed_write_paths
+        if scope["type"] != "http" or (scope["method"], scope["path"]) not in (
+            self._blocked_paths
         ):
             await self.app(scope, receive, send)
             return
@@ -86,8 +90,8 @@ class DemoReadOnlyMiddleware:
             content=error_payload(
                 code="demo_read_only",
                 message=(
-                    "To jest wersja demonstracyjna — dodawanie, zmiana i "
-                    "usuwanie danych jest wyłączone."
+                    "W wersji demonstracyjnej rejestracja jest wyłączona — "
+                    "wszyscy korzystają ze wspólnego konta demo."
                 ),
             ),
         )
@@ -120,6 +124,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     app_settings = settings or get_settings()
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """Run the demo data-reset loop for the lifetime of the app.
+
+        A no-op outside demo mode (or with the reset interval set to 0) —
+        the app has never had a lifespan before this, so every other
+        deployment is unaffected.
+        """
+        reset_task: asyncio.Task[None] | None = None
+        if app_settings.demo_mode and app_settings.demo_reset_interval_minutes > 0:
+            reset_task = asyncio.create_task(
+                run_reset_loop(app_settings.demo_reset_interval_minutes)
+            )
+            logger.info(
+                "Demo reset loop started (every %s min)",
+                app_settings.demo_reset_interval_minutes,
+            )
+        try:
+            yield
+        finally:
+            if reset_task is not None:
+                reset_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await reset_task
+
     # Disable interactive docs in production to avoid leaking API schema publicly
     # — except in demo mode, where the read-only guarantee below makes an
     # interactive schema a safe, useful part of the showcase.
@@ -132,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url=None if hide_docs else "/docs",
         redoc_url=None if hide_docs else "/redoc",
         openapi_url=None if hide_docs else "/openapi.json",
+        lifespan=lifespan,
     )
 
     # TrustedHostMiddleware — register before CORS so host is validated first.
@@ -151,16 +181,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     if app_settings.demo_mode:
-        auth_prefix = f"{app_settings.api_v1_prefix}/auth"
         app.add_middleware(
-            DemoReadOnlyMiddleware,
-            allowed_write_paths=frozenset(
-                f"{auth_prefix}/{action}" for action in ("login", "refresh", "logout")
+            DemoGuardMiddleware,
+            blocked_paths=frozenset(
+                {("POST", f"{app_settings.api_v1_prefix}/auth/register")}
             ),
         )
 
     # Pure-ASGI security-headers middleware — must be added AFTER CORS/TrustedHost
-    # (and demo-read-only) so it sits outermost and sees all responses,
+    # (and the demo guard) so it sits outermost and sees all responses,
     # including error responses.
     app.add_middleware(SecurityHeadersMiddleware)
 

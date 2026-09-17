@@ -1,13 +1,18 @@
 """Orchestrates one demo reseed: wipe, build, write, generate reports.
 
-Two separate transactions plus N more, not one big one:
+One transaction plus N more, not one giant one:
 
-1. wipe (its own transaction — a `TRUNCATE` commits cleanly on its own);
-2. write every domain row built by :func:`~devflow_api.demo.dataset.build_dataset`
-   (one transaction, committed before anything reads it back);
-3. one call per requested report into the real
+1. wipe *and* write every domain row built by
+   :func:`~devflow_api.demo.dataset.build_dataset`, together in a single
+   transaction. This runs against a live API (see
+   ``devflow_api.demo.scheduler``), so the wipe must never be visible on its
+   own — a reader must see either the old dataset or the new one, never an
+   empty database. Postgres holds the wipe's ``ACCESS EXCLUSIVE`` lock (see
+   ``wipe.wipe_all``) until this transaction commits, so concurrent readers
+   simply wait rather than observing the gap.
+2. one call per requested report into the real
    ``core.services.report._do_generate_report`` — which *must* run after
-   step 2 is committed, because it opens its own session
+   step 1 is committed, because it opens its own session
    (``async_session_factory``) and only ever sees committed data.
 
 This mirrors exactly what a real `POST /reports` request triggers, so a
@@ -125,8 +130,6 @@ async def run_seed(*, now: datetime | None = None) -> dict[str, int]:
 
     async with async_session_factory() as session, session.begin():
         await wipe_all(session)
-
-    async with async_session_factory() as session, session.begin():
         await _write_dataset(session, dataset)
 
     for req in dataset.report_requests:

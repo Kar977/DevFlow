@@ -1,12 +1,16 @@
 /**
- * Read-only public showcase mode.
+ * Public, editable showcase mode.
  *
  * Set at build time via `VITE_DEMO_MODE` (see `.env.production` on the
  * `demo` branch — Vite loads it automatically for `vite build`, so no
- * extra hosting configuration is needed). The real write guarantee lives
- * in the backend's `DemoReadOnlyMiddleware`; everything here is purely for
- * a clear visitor experience — a synthetic 403 from the API interceptor
- * (see `shared/api/client.ts`) reads identically to a real one either way.
+ * extra hosting configuration is needed). A visitor can create, edit, and
+ * delete data freely — the backend resets everything to its seeded
+ * baseline on a timer instead (`GET /demo/status` reports when the next
+ * reset happens; see `shared/ui/DemoBanner.tsx`). The one thing the backend
+ * still blocks is registration (`DemoGuardMiddleware`, `code: "demo_read_only"`)
+ * — every visitor shares the one demo account. The GitHub integration is
+ * fully simulated server-side; nothing a visitor does there ever reaches
+ * a real GitHub account.
  */
 export const IS_DEMO = import.meta.env.VITE_DEMO_MODE === "true";
 
@@ -20,16 +24,13 @@ export const DEMO_INTRO_TITLE = "DevFlow Insight — wersja demonstracyjna";
 
 export const DEMO_INTRO_MESSAGE =
   "To jest wersja demonstracyjna aplikacji, wypełniona przykładowymi danymi. " +
-  "Aktywne są wyłącznie operacje odczytu — możesz przeglądać wszystkie zakładki, " +
-  "wykresy i zestawienia. Dodawanie, modyfikowanie i usuwanie danych jest " +
-  "wyłączone, więc niczego tu nie zepsujesz.";
+  "Możesz swobodnie dodawać, edytować i usuwać zadania, projekty czy raporty — " +
+  "niczego tu nie zepsujesz, bo dane co jakiś czas wracają do stanu początkowego. " +
+  "Integracja z GitHubem jest w pełni symulowana i nie łączy się z prawdziwym kontem.";
 
 export const DEMO_BANNER_MESSAGE =
-  "Wersja demonstracyjna — dane są przykładowe. Aktywny jest tylko odczyt; " +
-  "dodawanie, modyfikowanie i usuwanie danych jest wyłączone.";
-
-export const DEMO_READ_ONLY_TOAST_MESSAGE =
-  "Tryb demo — dodawanie, zmiana i usuwanie danych jest wyłączone.";
+  "Wersja demonstracyjna — dane są przykładowe i można je swobodnie edytować. " +
+  "Co jakiś czas wracają do stanu początkowego, a integracja z GitHubem jest symulowana.";
 
 export const DEMO_COLD_START_MESSAGE =
   "Demo działa na darmowym hostingu — po dłuższej bezczynności backend jest usypiany " +
@@ -39,8 +40,3 @@ export const DEMO_COLD_START_MESSAGE =
 export const DEMO_LOGIN_ERROR_MESSAGE =
   "Nie udało się połączyć z aplikacją — backend prawdopodobnie właśnie się wybudza. " +
   "Odczekaj chwilę i spróbuj ponownie.";
-
-/** Matches the backend's `core/errors.py::error_payload` envelope exactly,
- * so a request blocked client-side is indistinguishable, on the wire shape,
- * from one the API itself would have rejected. */
-export const DEMO_READ_ONLY_ERROR_CODE = "demo_read_only";

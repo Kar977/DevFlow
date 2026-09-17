@@ -1,4 +1,6 @@
 import { isAxiosError } from "axios";
+import { Info } from "lucide-react";
+import { IS_DEMO } from "@/shared/lib/demo";
 import { useGitHubStatus } from "@/features/github/hooks/useGitHubStatus";
 import { useGitHubMutations } from "@/features/github/hooks/useGitHubMutations";
 import {
@@ -71,6 +73,20 @@ export function GitHubIntegrationPage() {
 
   return (
     <div className="space-y-4">
+      {IS_DEMO && (
+        <div
+          role="status"
+          className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"
+        >
+          <Info className="h-4 w-4 shrink-0" />
+          <p>
+            W wersji demonstracyjnej integracja z GitHubem jest w pełni
+            symulowana — instalacja, synchronizacja i rozłączanie działają,
+            ale nic tu nie łączy się z prawdziwym kontem ani repozytorium
+            GitHub.
+          </p>
+        </div>
+      )}
       <section className="space-y-2">
         <h2 className="text-lg font-medium">Repozytoria organizacji</h2>
         <InstallationList
